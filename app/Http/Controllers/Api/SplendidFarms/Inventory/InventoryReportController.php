@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\SplendidFarms\Inventory;
 
 use App\Http\Controllers\Controller;
+use App\Models\Enterprise;
+use App\Models\Entity;
 use App\Models\InventoryStock;
 use App\Models\InventoryKardex;
 use App\Models\Product;
@@ -12,6 +14,34 @@ use Illuminate\Support\Facades\DB;
 
 class InventoryReportController extends Controller
 {
+    /**
+     * Obtiene la empresa actual desde el header X-Enterprise-Slug.
+     */
+    private function getEnterprise(Request $request): ?Enterprise
+    {
+        $slug = $request->header('X-Enterprise-Slug');
+        if (!$slug) {
+            return null;
+        }
+
+        return Enterprise::where('slug', $slug)->first();
+    }
+
+    /**
+     * IDs de entidades propias de la empresa en sesión.
+     */
+    private function getOwnEntityIds(Request $request): array
+    {
+        $enterprise = $this->getEnterprise($request);
+        if (!$enterprise) {
+            return [];
+        }
+
+        return Entity::whereHas('branch', function ($q) use ($enterprise) {
+            $q->where('enterprise_id', $enterprise->id);
+        })->pluck('id')->toArray();
+    }
+
     /**
      * Kardex por productor: todos los movimientos de inventario asociados a un productor.
      */
@@ -52,11 +82,33 @@ class InventoryReportController extends Controller
      */
     public function stock(Request $request): JsonResponse
     {
+        $ownEntityIds = $this->getOwnEntityIds($request);
+
+        if (empty($ownEntityIds)) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'stock' => [],
+                    'totals' => [
+                        'total_items' => 0,
+                        'total_products' => 0,
+                        'total_quantity' => 0,
+                        'total_reserved' => 0,
+                        'total_available' => 0,
+                    ],
+                ],
+            ]);
+        }
+
         $query = InventoryStock::with([
-            'product:id,code,name,sku,min_stock,max_stock,reorder_point,cost_price,sale_price,image',
+            'product:id,code,name,sku,min_stock,max_stock,reorder_point,cost_price,sale_price,image,brand_id,category_id,unit_id',
+            'product.brand:id,name,code',
             'product.category:id,name,code',
             'product.unit:id,name,abbreviation',
-        ]);
+            'entity:id,name,code,branch_id',
+            'entity.branch:id,name,enterprise_id',
+            'entity.branch.enterprise:id,name,slug',
+        ])->whereIn('entity_id', $ownEntityIds);
 
         // Filtrar por producto
         if ($request->filled('product_id')) {
@@ -67,6 +119,13 @@ class InventoryReportController extends Controller
         if ($request->filled('category_id')) {
             $query->whereHas('product', function ($q) use ($request) {
                 $q->where('category_id', $request->category_id);
+            });
+        }
+
+        // Filtrar por marca
+        if ($request->filled('brand_id')) {
+            $query->whereHas('product', function ($q) use ($request) {
+                $q->where('brand_id', $request->brand_id);
             });
         }
 
@@ -118,6 +177,7 @@ class InventoryReportController extends Controller
                         return [
                             'entity_id' => $item->entity_id,
                             'entity_type' => $item->entity_type,
+                            'entity' => $item->entity,
                             'quantity' => $item->quantity,
                             'lot_number' => $item->lot_number,
                             'expiry_date' => $item->expiry_date,

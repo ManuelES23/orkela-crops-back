@@ -10,6 +10,7 @@ use App\Models\InventoryMovementDetail;
 use App\Models\InventoryStock;
 use App\Models\InventoryKardex;
 use App\Models\MovementType;
+use App\Models\Product;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -200,12 +201,22 @@ class InventoryMovementController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = InventoryMovement::with([
+        $with = [
             'movementType:id,code,name,direction,effect,color,icon',
             'sourceEntity:id,name,code',
             'destinationEntity:id,name,code',
-            'createdBy:id,name'
-        ])->withCount('details');
+            'createdBy:id,name',
+        ];
+
+        if ($request->boolean('include_details')) {
+            $with[] = 'details.product:id,code,name,sku,brand_id,category_id,unit_id';
+            $with[] = 'details.product.brand:id,name,code';
+            $with[] = 'details.product.category:id,name,code';
+            $with[] = 'details.product.unit:id,name,abbreviation';
+            $with[] = 'details.unit:id,name,abbreviation';
+        }
+
+        $query = InventoryMovement::with($with)->withCount('details');
 
         // Filtrar por entidades accesibles de la empresa actual
         $entityIds = $this->getAccessibleEntityIds($request);
@@ -364,6 +375,24 @@ class InventoryMovementController extends Controller
                 ], 422);
             }
         }
+
+        // Validar stock desde la creación para salidas/transferencias/ajustes negativos.
+        // Esto evita que se registren operaciones inviables que luego fallen al aprobar.
+        $requiresStockValidation =
+            in_array($movementType->direction, ['out', 'transfer']) ||
+            ($movementType->direction === 'adjustment' && $movementType->effect === 'decrease');
+
+        if ($requiresStockValidation) {
+            $sourceEntityId = (int) ($validated['source_entity_id'] ?? 0);
+            $insufficientStock = $this->findInsufficientStockItems($sourceEntityId, $validated['details'] ?? []);
+
+            if (!empty($insufficientStock)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Stock insuficiente para los siguientes productos: ' . implode(', ', $insufficientStock),
+                ], 422);
+            }
+        }
         // ─────────────────────────────────────────────────────────────────────
 
         DB::beginTransaction();
@@ -412,7 +441,15 @@ class InventoryMovementController extends Controller
 
             DB::commit();
 
-            $movement->load(['movementType', 'details.product:id,code,name', 'createdBy:id,name']);
+            $movement->load([
+                'movementType',
+                'details.product:id,code,name,sku,brand_id,category_id,unit_id',
+                'details.product.brand:id,name,code',
+                'details.product.category:id,name,code',
+                'details.product.unit:id,name,abbreviation',
+                'details.unit:id,name,abbreviation',
+                'createdBy:id,name',
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -438,7 +475,10 @@ class InventoryMovementController extends Controller
             'movementType',
             'sourceEntity',
             'destinationEntity',
-            'details.product:id,code,name,sku',
+            'details.product:id,code,name,sku,brand_id,category_id,unit_id',
+            'details.product.brand:id,name,code',
+            'details.product.category:id,name,code',
+            'details.product.unit:id,name,abbreviation',
             'details.unit:id,name,abbreviation',
             'createdBy:id,name',
             'approvedBy:id,name'
@@ -531,6 +571,34 @@ class InventoryMovementController extends Controller
                 ], 422);
             }
         }
+
+        $requiresStockValidation =
+            ($movementType && in_array($movementType->direction, ['out', 'transfer'])) ||
+            ($movementType && $movementType->direction === 'adjustment' && $movementType->effect === 'decrease');
+
+        if ($requiresStockValidation) {
+            $sourceEntityId = (int) ($validated['source_entity_id'] ?? $movement->source_entity_id ?? 0);
+
+            $detailsForValidation = $validated['details'] ?? $movement->details()
+                ->get(['product_id', 'quantity', 'base_quantity', 'conversion_factor', 'lot_number'])
+                ->map(fn ($detail) => [
+                    'product_id' => $detail->product_id,
+                    'quantity' => $detail->quantity,
+                    'base_quantity' => $detail->base_quantity,
+                    'conversion_factor' => $detail->conversion_factor,
+                    'lot_number' => $detail->lot_number,
+                ])
+                ->toArray();
+
+            $insufficientStock = $this->findInsufficientStockItems($sourceEntityId, $detailsForValidation);
+
+            if (!empty($insufficientStock)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Stock insuficiente para los siguientes productos: ' . implode(', ', $insufficientStock),
+                ], 422);
+            }
+        }
         // ─────────────────────────────────────────────────────────────────────
 
         DB::beginTransaction();
@@ -597,7 +665,15 @@ class InventoryMovementController extends Controller
 
             DB::commit();
 
-            $movement = $movement->fresh(['movementType', 'details.product:id,code,name', 'createdBy:id,name']);
+            $movement = $movement->fresh([
+                'movementType',
+                'details.product:id,code,name,sku,brand_id,category_id,unit_id',
+                'details.product.brand:id,name,code',
+                'details.product.category:id,name,code',
+                'details.product.unit:id,name,abbreviation',
+                'details.unit:id,name,abbreviation',
+                'createdBy:id,name',
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -762,9 +838,15 @@ class InventoryMovementController extends Controller
                 ];
             }
 
-            // Validar stock suficiente para salidas y transferencias
-            if (in_array($movementType->direction, ['out', 'transfer']) ||
-                ($movementType->direction === 'adjustment' && $movementType->effect === 'decrease')) {
+            // Validar stock suficiente para salidas/transferencias/ajustes negativos.
+            // En recepción externa de transferencia no se vuelve a validar aquí,
+            // porque ya debió validarse al registrar/editar la transferencia emisora.
+            $skipStockValidationOnReception =
+                $movementType->direction === 'transfer' && $allowsReceptionValidation;
+
+            if (! $skipStockValidationOnReception &&
+                (in_array($movementType->direction, ['out', 'transfer']) ||
+                ($movementType->direction === 'adjustment' && $movementType->effect === 'decrease'))) {
 
                 $entityId = $movement->source_entity_id;
                 $insufficientStock = [];
@@ -918,6 +1000,65 @@ class InventoryMovementController extends Controller
         }
 
         return $user?->employee?->enterprise_id;
+    }
+
+    /**
+     * Devuelve lista de productos con stock insuficiente para una entidad origen.
+     *
+     * @param int $entityId
+     * @param array<int, array<string, mixed>> $details
+     * @return array<int, string>
+     */
+    private function findInsufficientStockItems(int $entityId, array $details): array
+    {
+        if ($entityId <= 0 || empty($details)) {
+            return [];
+        }
+
+        $productIds = collect($details)
+            ->pluck('product_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $productNames = Product::whereIn('id', $productIds)
+            ->pluck('name', 'id');
+
+        $insufficient = [];
+
+        foreach ($details as $detail) {
+            $productId = (int) ($detail['product_id'] ?? 0);
+            if ($productId <= 0) {
+                continue;
+            }
+
+            $baseQuantity = isset($detail['base_quantity'])
+                ? (float) $detail['base_quantity']
+                : 0.0;
+
+            if ($baseQuantity <= 0) {
+                $quantity = (float) ($detail['quantity'] ?? 0);
+                $conversionFactor = (float) ($detail['conversion_factor'] ?? 1);
+                $baseQuantity = $quantity * ($conversionFactor > 0 ? $conversionFactor : 1);
+            }
+
+            if ($baseQuantity <= 0) {
+                continue;
+            }
+
+            $stock = InventoryStock::where('product_id', $productId)
+                ->where('entity_id', $entityId)
+                ->when(!empty($detail['lot_number']), fn ($q) => $q->where('lot_number', $detail['lot_number']))
+                ->sum('quantity');
+
+            if ((float) $stock < $baseQuantity) {
+                $productName = $productNames->get($productId) ?? "ID:{$productId}";
+                $insufficient[] = "{$productName} (disponible: {$stock}, requerido: {$baseQuantity})";
+            }
+        }
+
+        return $insufficient;
     }
 
     /**

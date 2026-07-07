@@ -806,6 +806,18 @@ class MasterStructureSeeder extends Seeder
         );
         $this->command->info("    → Clientes: Catálogo de Clientes");
 
+        // Módulo: Gestión de Producto
+        $gestionProducto = Module::firstOrCreate(
+            ['slug' => 'gestion-producto', 'application_id' => $sales->id],
+            ['name' => 'Gestión de Producto', 'icon' => 'PackageSearch', 'order' => 2, 'is_active' => true]
+        );
+
+        Submodule::firstOrCreate(
+            ['slug' => 'calculadora-sscc', 'module_id' => $gestionProducto->id],
+            ['name' => 'Calculadora SSCC', 'icon' => 'QrCode', 'order' => 1, 'is_active' => true]
+        );
+        $this->command->info("    → Gestión de Producto: Calculadora SSCC");
+
         // ========================================
         // APLICACIÓN: EXPORTACIONES
         // ========================================
