@@ -537,6 +537,7 @@ class MasterStructureSeeder extends Seeder
         );
 
         $cosechaSubmodules = [
+            ['slug' => 'dashboard', 'name' => 'Dashboard', 'icon' => 'LayoutDashboard', 'order' => 0],
             ['slug' => 'salidas-campo', 'name' => 'Salidas de Campo', 'icon' => 'Truck', 'order' => 1],
             ['slug' => 'cierres-cosecha', 'name' => 'Cierres de Cosecha', 'icon' => 'ClipboardCheck', 'order' => 2],
             ['slug' => 'ventas-cosecha', 'name' => 'Ventas de Cosecha', 'icon' => 'DollarSign', 'order' => 3],
@@ -549,7 +550,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Cosecha: Salidas de Campo, Cierres, Ventas, Calidad");
+        $this->command->info("    → Cosecha: Dashboard, Salidas de Campo, Cierres, Ventas, Calidad");
 
         // Módulo: Empaque
         $oaEmpaque = Module::firstOrCreate(

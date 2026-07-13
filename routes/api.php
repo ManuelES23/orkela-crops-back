@@ -422,6 +422,7 @@ Route::middleware('auth:sanctum')->group(function () {
             // Módulo Reportes
             Route::prefix('reportes')->group(function () {
                 Route::get('stock', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryReportController::class, 'stock']);
+                Route::get('gasto-produccion', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryReportController::class, 'productionConsumption']);
                 Route::get('movimientos', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryReportController::class, 'movements']);
                 Route::get('valorizado', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryReportController::class, 'valued']);
                 Route::get('alertas', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryReportController::class, 'alerts']);

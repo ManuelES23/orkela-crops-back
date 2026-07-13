@@ -8,6 +8,8 @@ use App\Models\Entity;
 use App\Models\InventoryStock;
 use App\Models\InventoryKardex;
 use App\Models\Product;
+use App\Models\ProduccionEmpaque;
+use App\Models\ProduccionEmpaqueDetalle;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -100,6 +102,15 @@ class InventoryReportController extends Controller
             ]);
         }
 
+        $consumptionDateFrom = $request->input('consumption_date_from');
+        $consumptionDateTo = $request->input('consumption_date_to');
+        $productionConsumption = $this->getProductionConsumptionData(
+            $ownEntityIds,
+            $consumptionDateFrom,
+            $consumptionDateTo,
+        );
+        $consumptionMap = $productionConsumption['map_by_entity_product'];
+
         $query = InventoryStock::with([
             'product:id,code,name,sku,min_stock,max_stock,reorder_point,cost_price,sale_price,image,brand_id,category_id,unit_id',
             'product.brand:id,name,code',
@@ -167,12 +178,17 @@ class InventoryReportController extends Controller
         if ($request->boolean('grouped_by_product')) {
             $stock = $stock->groupBy('product_id')->map(function ($items) {
                 $product = $items->first()->product;
+                $totalConsumedQuantity = $items->sum('production_consumed_quantity');
+                $totalConsumedCost = $items->sum('production_consumed_cost');
+
                 return [
                     'product' => $product,
                     'total_quantity' => $items->sum('quantity'),
                     'total_reserved' => $items->sum('reserved_quantity'),
                     'total_available' => $items->sum('available_quantity'),
                     'total_value' => $items->sum('quantity') * ($product->cost_price ?? 0),
+                    'production_consumed_quantity' => round((float) $totalConsumedQuantity, 4),
+                    'production_consumed_cost' => round((float) $totalConsumedCost, 4),
                     'locations' => $items->map(function ($item) {
                         return [
                             'entity_id' => $item->entity_id,
@@ -185,6 +201,14 @@ class InventoryReportController extends Controller
                     }),
                 ];
             })->values();
+        } else {
+            $stock->each(function ($item) use ($consumptionMap) {
+                $key = $item->entity_id . ':' . $item->product_id;
+                $consumed = $consumptionMap[$key] ?? ['quantity' => 0, 'cost' => 0];
+
+                $item->setAttribute('production_consumed_quantity', round((float) ($consumed['quantity'] ?? 0), 4));
+                $item->setAttribute('production_consumed_cost', round((float) ($consumed['cost'] ?? 0), 4));
+            });
         }
 
         // Calcular totales
@@ -203,6 +227,357 @@ class InventoryReportController extends Controller
                 'totals' => $totals,
             ]
         ]);
+    }
+
+    /**
+     * Get production consumption report.
+     */
+    public function productionConsumption(Request $request): JsonResponse
+    {
+        $ownEntityIds = $this->getOwnEntityIds($request);
+
+        if (empty($ownEntityIds)) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'rows' => [],
+                    'totals' => [
+                        'total_rows' => 0,
+                        'total_products' => 0,
+                        'total_entities' => 0,
+                        'total_consumed_quantity' => 0,
+                        'total_consumed_cost' => 0,
+                    ],
+                ],
+            ]);
+        }
+
+        $entityIds = $ownEntityIds;
+        if ($request->filled('entity_id')) {
+            $requestedEntityId = (int) $request->entity_id;
+            $entityIds = in_array($requestedEntityId, $ownEntityIds, true) ? [$requestedEntityId] : [];
+        }
+
+        if (empty($entityIds)) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'rows' => [],
+                    'totals' => [
+                        'total_rows' => 0,
+                        'total_products' => 0,
+                        'total_entities' => 0,
+                        'total_consumed_quantity' => 0,
+                        'total_consumed_cost' => 0,
+                    ],
+                ],
+            ]);
+        }
+
+        $data = $this->getProductionConsumptionData(
+            $entityIds,
+            $request->input('date_from'),
+            $request->input('date_to'),
+            $request->filled('product_id') ? (int) $request->product_id : null,
+            $request->filled('category_id') ? (int) $request->category_id : null,
+            $request->filled('brand_id') ? (int) $request->brand_id : null,
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'rows' => $data['rows'],
+                'totals' => $data['totals'],
+            ],
+        ]);
+    }
+
+    /**
+     * Calcula consumo de insumos por producción de empaque.
+     */
+    private function getProductionConsumptionData(
+        array $entityIds,
+        ?string $dateFrom = null,
+        ?string $dateTo = null,
+        ?int $productId = null,
+        ?int $categoryId = null,
+        ?int $brandId = null,
+    ): array {
+        if (empty($entityIds)) {
+            return [
+                'rows' => [],
+                'totals' => [
+                    'total_rows' => 0,
+                    'total_products' => 0,
+                    'total_entities' => 0,
+                    'total_consumed_quantity' => 0,
+                    'total_consumed_cost' => 0,
+                ],
+                'map_by_entity_product' => [],
+            ];
+        }
+
+        $aggregated = [];
+
+        $accumulate = function (
+            int $entityId,
+            int $productIdValue,
+            string $productionBrand,
+            float $quantity,
+            float $cost,
+        ) use (&$aggregated): void {
+            if ($quantity <= 0) {
+                return;
+            }
+
+            $normalizedBrand = trim($productionBrand) !== '' ? trim($productionBrand) : 'SIN MARCA';
+            $key = $entityId . ':' . $productIdValue . ':' . $normalizedBrand;
+            if (! isset($aggregated[$key])) {
+                $aggregated[$key] = [
+                    'entity_id' => $entityId,
+                    'product_id' => $productIdValue,
+                    'production_brand' => $normalizedBrand,
+                    'consumed_quantity' => 0.0,
+                    'consumed_cost' => 0.0,
+                ];
+            }
+
+            $aggregated[$key]['consumed_quantity'] += $quantity;
+            $aggregated[$key]['consumed_cost'] += $cost;
+        };
+
+        $applyRecipeItems = function (
+            int $entityId,
+            string $productionBrand,
+            $recipe,
+            int $totalCajas,
+            bool $isCola,
+        ) use ($accumulate): void {
+            if ($totalCajas <= 0 || ! $recipe) {
+                return;
+            }
+
+            $cajaItem = $recipe->items->first(function ($item) {
+                $groupKey = strtolower(trim((string) ($item->group_key ?? '')));
+                return $groupKey === 'caja' && (float) ($item->quantity ?? 0) > 0;
+            });
+
+            // Priorizar grupo caja para evitar inflar consumo cuando output_quantity no representa cajas.
+            $scaleBase = (float) ($cajaItem->quantity ?? 0);
+            if ($scaleBase <= 0) {
+                $scaleBase = (float) ($recipe->output_quantity ?? 0);
+            }
+
+            if ($scaleBase <= 0) {
+                $scaleBase = 1;
+            }
+
+            $scale = (float) $totalCajas / $scaleBase;
+
+            if ($scale <= 0) {
+                return;
+            }
+
+            foreach ($recipe->items as $item) {
+                if (! $item->product_id || (bool) $item->is_optional) {
+                    continue;
+                }
+
+                if (filled($item->group_key) && $item->is_default === false) {
+                    continue;
+                }
+
+                if ($isCola) {
+                    $groupKey = strtolower(trim((string) ($item->group_key ?? '')));
+                    if (in_array($groupKey, ['esquinero', 'esquineros'], true)) {
+                        continue;
+                    }
+                }
+
+                $baseQty = (float) ($item->quantity ?? 0);
+                if ($baseQty <= 0) {
+                    continue;
+                }
+
+                $wasteFactor = 1 + (((float) ($item->waste_percentage ?? 0)) / 100);
+                $consumedQty = round($baseQty * $wasteFactor * $scale, 4);
+                if ($consumedQty <= 0) {
+                    continue;
+                }
+
+                $unitCost = (float) ($item->cost_per_unit ?? 0);
+                $consumedCost = round($consumedQty * $unitCost, 4);
+
+                $accumulate(
+                    $entityId,
+                    (int) $item->product_id,
+                    $productionBrand,
+                    $consumedQty,
+                    $consumedCost,
+                );
+            }
+        };
+
+        $detallesQuery = ProduccionEmpaqueDetalle::query()
+            ->with([
+                'produccion:id,entity_id,fecha_produccion,is_cola,deleted_at',
+                'recipe:id,output_quantity',
+                'recipe.items:id,recipe_id,product_id,quantity,waste_percentage,cost_per_unit,is_optional,group_key,is_default',
+            ])
+            ->whereHas('produccion', function ($q) use ($entityIds) {
+                $q->whereIn('entity_id', $entityIds);
+            })
+            ->whereNotNull('recipe_id')
+            ->where('total_cajas', '>', 0);
+
+        if ($dateFrom) {
+            $detallesQuery->whereDate('fecha_produccion', '>=', $dateFrom);
+        }
+        if ($dateTo) {
+            $detallesQuery->whereDate('fecha_produccion', '<=', $dateTo);
+        }
+
+        $detalles = $detallesQuery->get();
+        foreach ($detalles as $detalle) {
+            $entityId = (int) ($detalle->produccion?->entity_id ?? 0);
+            $totalCajas = (int) ($detalle->total_cajas ?? 0);
+            if ($entityId <= 0 || $totalCajas <= 0) {
+                continue;
+            }
+
+            $productionBrand = trim((string) ($detalle->marca ?? $detalle->produccion?->marca ?? ''));
+
+            $isCola = (bool) ($detalle->produccion?->is_cola ?? false);
+
+            $applyRecipeItems($entityId, $productionBrand, $detalle->recipe, $totalCajas, $isCola);
+        }
+
+        $produccionesSinDetalleQuery = ProduccionEmpaque::query()
+            ->with([
+                'recipe:id,output_quantity',
+                'recipe.items:id,recipe_id,product_id,quantity,waste_percentage,cost_per_unit,is_optional,group_key,is_default',
+            ])
+            ->whereIn('entity_id', $entityIds)
+            ->whereNotNull('recipe_id')
+            ->where('total_cajas', '>', 0)
+            ->doesntHave('detalles');
+
+        if ($dateFrom) {
+            $produccionesSinDetalleQuery->whereDate('fecha_produccion', '>=', $dateFrom);
+        }
+        if ($dateTo) {
+            $produccionesSinDetalleQuery->whereDate('fecha_produccion', '<=', $dateTo);
+        }
+
+        $produccionesSinDetalle = $produccionesSinDetalleQuery->get();
+        foreach ($produccionesSinDetalle as $produccion) {
+            $entityId = (int) ($produccion->entity_id ?? 0);
+            $totalCajas = (int) ($produccion->total_cajas ?? 0);
+            if ($entityId <= 0 || $totalCajas <= 0) {
+                continue;
+            }
+
+            $productionBrand = trim((string) ($produccion->marca ?? ''));
+
+            $isCola = (bool) ($produccion->is_cola ?? false);
+
+            $applyRecipeItems($entityId, $productionBrand, $produccion->recipe, $totalCajas, $isCola);
+        }
+
+        if (empty($aggregated)) {
+            return [
+                'rows' => [],
+                'totals' => [
+                    'total_rows' => 0,
+                    'total_products' => 0,
+                    'total_entities' => 0,
+                    'total_consumed_quantity' => 0,
+                    'total_consumed_cost' => 0,
+                ],
+                'map_by_entity_product' => [],
+            ];
+        }
+
+        $productIds = collect($aggregated)->pluck('product_id')->unique()->values();
+        $entityIdsFound = collect($aggregated)->pluck('entity_id')->unique()->values();
+
+        $productsQuery = Product::with([
+            'brand:id,name,code',
+            'category:id,name,code',
+            'unit:id,name,abbreviation',
+        ])->whereIn('id', $productIds);
+
+        if ($productId) {
+            $productsQuery->where('id', $productId);
+        }
+        if ($categoryId) {
+            $productsQuery->where('category_id', $categoryId);
+        }
+        if ($brandId) {
+            $productsQuery->where('brand_id', $brandId);
+        }
+
+        $products = $productsQuery->get()->keyBy('id');
+        $entities = Entity::with(['branch:id,name,enterprise_id', 'branch.enterprise:id,name,slug'])
+            ->whereIn('id', $entityIdsFound)
+            ->get(['id', 'name', 'code', 'branch_id'])
+            ->keyBy('id');
+
+        $rows = [];
+        $mapByEntityProduct = [];
+
+        foreach ($aggregated as $item) {
+            $product = $products->get($item['product_id']);
+            if (! $product) {
+                continue;
+            }
+
+            $entity = $entities->get($item['entity_id']);
+            $quantity = round((float) $item['consumed_quantity'], 4);
+            $cost = round((float) $item['consumed_cost'], 4);
+            $key = $item['entity_id'] . ':' . $item['product_id'];
+
+            $mapByEntityProduct[$key] = [
+                'quantity' => $quantity,
+                'cost' => $cost,
+            ];
+
+            $rows[] = [
+                'entity_id' => $item['entity_id'],
+                'entity' => $entity,
+                'product_id' => $item['product_id'],
+                'product' => $product,
+                'production_brand' => $item['production_brand'] ?? 'SIN MARCA',
+                'consumed_quantity' => $quantity,
+                'consumed_cost' => $cost,
+            ];
+
+            if (! isset($mapByEntityProduct[$key])) {
+                $mapByEntityProduct[$key] = [
+                    'quantity' => 0,
+                    'cost' => 0,
+                ];
+            }
+
+            $mapByEntityProduct[$key]['quantity'] += $quantity;
+            $mapByEntityProduct[$key]['cost'] += $cost;
+        }
+
+        usort($rows, fn ($a, $b) => ($b['consumed_quantity'] <=> $a['consumed_quantity']));
+
+        $totals = [
+            'total_rows' => count($rows),
+            'total_products' => collect($rows)->pluck('product_id')->unique()->count(),
+            'total_entities' => collect($rows)->pluck('entity_id')->unique()->count(),
+            'total_consumed_quantity' => round((float) collect($rows)->sum('consumed_quantity'), 4),
+            'total_consumed_cost' => round((float) collect($rows)->sum('consumed_cost'), 4),
+        ];
+
+        return [
+            'rows' => $rows,
+            'totals' => $totals,
+            'map_by_entity_product' => $mapByEntityProduct,
+        ];
     }
 
     /**

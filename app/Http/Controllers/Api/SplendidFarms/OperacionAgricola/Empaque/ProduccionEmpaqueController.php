@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\Empaque;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Entity;
+use App\Models\InventoryStock;
 use App\Models\ProcesoEmpaque;
 use App\Models\ProduccionEmpaque;
 use App\Models\ProduccionEmpaqueDetalle;
@@ -261,6 +262,13 @@ class ProduccionEmpaqueController extends Controller
             $this->hydrateDetalleLoteProductoTerminado($produccion);
             $this->hydrateResolvedLoteProductoTerminado($produccion);
 
+            $this->applyRecipeInventoryConsumption(
+                (int) $produccion->entity_id,
+                $produccion->recipe_id ? (int) $produccion->recipe_id : null,
+                (int) $produccion->total_cajas,
+                (bool) $produccion->is_cola,
+            );
+
             return response()->json([
                 'success' => true,
                 'message' => 'Producción creada correctamente',
@@ -322,21 +330,56 @@ class ProduccionEmpaqueController extends Controller
             }
         }
 
-        $produccion->update($validated);
-        $produccion->loadMissing('detalles');
+        return DB::transaction(function () use ($produccion, $validated) {
+            $previousEntityId = (int) $produccion->entity_id;
+            $previousRecipeId = $produccion->recipe_id ? (int) $produccion->recipe_id : null;
+            $previousTotalCajas = (int) ($produccion->total_cajas ?? 0);
+            $previousIsCola = (bool) ($produccion->is_cola ?? false);
 
-        if ($produccion->detalles->isNotEmpty()) {
-            $produccion->update($this->buildAggregateFieldsFromDetalles($produccion));
-        }
+            $produccion->update($validated);
+            $produccion->loadMissing('detalles');
 
-        $produccion->load($this->eagerLoad);
-        $this->hydrateResolvedLoteProductoTerminado($produccion);
+            if ($produccion->detalles->isNotEmpty()) {
+                $produccion->update($this->buildAggregateFieldsFromDetalles($produccion));
+            }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Producción actualizada',
-            'data' => $produccion,
-        ]);
+            $currentEntityId = (int) $produccion->entity_id;
+            $currentRecipeId = $produccion->recipe_id ? (int) $produccion->recipe_id : null;
+            $currentTotalCajas = (int) ($produccion->total_cajas ?? 0);
+            $currentIsCola = (bool) ($produccion->is_cola ?? false);
+
+            $inventoryChanged =
+                $previousEntityId !== $currentEntityId
+                || $previousRecipeId !== $currentRecipeId
+                || $previousTotalCajas !== $currentTotalCajas
+                || $previousIsCola !== $currentIsCola;
+
+            if ($inventoryChanged) {
+                $this->applyRecipeInventoryConsumption(
+                    $previousEntityId,
+                    $previousRecipeId,
+                    $previousTotalCajas,
+                    $previousIsCola,
+                    true,
+                );
+
+                $this->applyRecipeInventoryConsumption(
+                    $currentEntityId,
+                    $currentRecipeId,
+                    $currentTotalCajas,
+                    $currentIsCola,
+                );
+            }
+
+            $produccion->load($this->eagerLoad);
+            $this->hydrateResolvedLoteProductoTerminado($produccion);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Producción actualizada',
+                'data' => $produccion,
+            ]);
+        });
     }
 
     public function destroy(ProduccionEmpaque $produccion): JsonResponse
@@ -347,6 +390,14 @@ class ProduccionEmpaqueController extends Controller
             $esPalletMixto = (bool) $produccion->is_mixto && $produccion->detalles->isNotEmpty();
 
             if (! $esPalletMixto) {
+                $this->applyRecipeInventoryConsumption(
+                    (int) $produccion->entity_id,
+                    $produccion->recipe_id ? (int) $produccion->recipe_id : null,
+                    (int) ($produccion->total_cajas ?? 0),
+                    (bool) ($produccion->is_cola ?? false),
+                    true,
+                );
+
                 $produccion->delete();
 
                 return response()->json(['success' => true, 'message' => 'Producción eliminada']);
@@ -1160,6 +1211,13 @@ class ProduccionEmpaqueController extends Controller
                 'created_by' => $request->user()->id,
             ]);
 
+            $this->applyRecipeInventoryConsumption(
+                (int) $produccion->entity_id,
+                $recipeId ? (int) $recipeId : null,
+                (int) $validated['total_cajas'],
+                true,
+            );
+
             // Detectar si es pallet mixto comparando con entradas anteriores
             $isMixto = $produccion->is_mixto; // mantener si ya era mixto
             if (!$isMixto) {
@@ -1822,6 +1880,114 @@ class ProduccionEmpaqueController extends Controller
             'peso_neto_kg' => $aggregateFields['peso_neto_kg'],
             'marca' => $aggregateFields['marca'] ?? $produccion->marca,
         ]);
+    }
+
+    /**
+     * Descuenta (o revierte) inventario de insumos según receta y cajas producidas.
+     * Permite negativos para reflejar faltantes reales en arranque operativo.
+     */
+    private function applyRecipeInventoryConsumption(
+        int $entityId,
+        ?int $recipeId,
+        int $totalCajas,
+        bool $isCola = false,
+        bool $revert = false,
+    ): void {
+        if ($entityId <= 0 || empty($recipeId) || $totalCajas <= 0) {
+            return;
+        }
+
+        $recipe = Recipe::with(['items' => function ($query) {
+            $query->select([
+                'id',
+                'recipe_id',
+                'product_id',
+                'quantity',
+                'waste_percentage',
+                'cost_per_unit',
+                'is_optional',
+                'group_key',
+                'is_default',
+            ])
+            ->whereNotNull('product_id')
+            ->where('quantity', '>', 0);
+        }])->find($recipeId);
+
+        if (! $recipe) {
+            return;
+        }
+
+        $cajaItem = $recipe->items->first(function ($item) {
+            $groupKey = strtolower(trim((string) ($item->group_key ?? '')));
+            return $groupKey === 'caja' && (float) ($item->quantity ?? 0) > 0;
+        });
+
+        // Priorizar grupo caja porque output_quantity puede representar pallets/unidades distintas.
+        $scaleBase = (float) ($cajaItem->quantity ?? 0);
+        if ($scaleBase <= 0) {
+            $scaleBase = (float) ($recipe->output_quantity ?? 0);
+        }
+
+        if ($scaleBase <= 0) {
+            $scaleBase = 1;
+        }
+
+        $scale = (float) $totalCajas / $scaleBase;
+
+        if ($scale <= 0) {
+            return;
+        }
+
+        $consumableItems = $recipe->items->filter(function ($item) use ($isCola) {
+            if (! $item->product_id) {
+                return false;
+            }
+
+            if ((bool) $item->is_optional) {
+                return false;
+            }
+
+            if (filled($item->group_key) && $item->is_default === false) {
+                return false;
+            }
+
+            // En colas, insumos de cierre (ej. esquineros) se consumen hasta completar pallet.
+            if ($isCola) {
+                $groupKey = strtolower(trim((string) ($item->group_key ?? '')));
+                if (in_array($groupKey, ['esquinero', 'esquineros'], true)) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        foreach ($consumableItems as $item) {
+            $baseQty = (float) ($item->quantity ?? 0);
+            if ($baseQty <= 0) {
+                continue;
+            }
+
+            $wasteFactor = 1 + (((float) ($item->waste_percentage ?? 0)) / 100);
+            $consumedQty = round($baseQty * $wasteFactor * $scale, 4);
+            if ($consumedQty <= 0) {
+                continue;
+            }
+
+            $delta = $revert ? $consumedQty : (-1 * $consumedQty);
+
+            InventoryStock::updateStock(
+                (int) $item->product_id,
+                $entityId,
+                null,
+                $delta,
+                (float) ($item->cost_per_unit ?? 0),
+                null,
+                null,
+                null,
+                true,
+            );
+        }
     }
 
     private function hydrateResolvedLoteProductoTerminado(ProduccionEmpaque $produccion): void

@@ -121,7 +121,8 @@ class InventoryStock extends Model
         float $unitCost = 0,
         ?string $lotNumber = null,
         ?string $expiryDate = null,
-        ?int $movementId = null
+        ?int $movementId = null,
+        bool $allowNegative = false
     ): self {
         $stock = self::firstOrNew([
             'product_id' => $productId,
@@ -139,7 +140,7 @@ class InventoryStock extends Model
             $stock->unit_cost = $newQuantity > 0 ? $newTotal / $newQuantity : $unitCost;
         }
 
-        $stock->quantity = max(0, $newQuantity);
+        $stock->quantity = $allowNegative ? $newQuantity : max(0, $newQuantity);
         $stock->total_cost = $stock->quantity * ($stock->unit_cost ?? 0);
         
         if ($expiryDate) {
