@@ -17,7 +17,7 @@ class EmbarqueEmpaqueController extends Controller
         'temporada:id,cultivo_id,nombre',
         'temporada.cultivo:id,nombre',
         'entity:id,name,code',
-        'detalles.produccion:id,proceso_id,numero_pallet,is_cola,is_mixto,variedad_id,marca,presentacion,calibre,tipo_empaque,recipe_id,total_cajas,peso_bascula_kg,fecha_produccion,lote_producto_terminado,observaciones',
+        'detalles.produccion:id,proceso_id,numero_pallet,is_cola,is_mixto,variedad_id,marca,presentacion,calibre,tipo_empaque,recipe_id,total_cajas,peso_bascula_kg,fecha_produccion,lote_producto_terminado,clasificacion,observaciones',
         'detalles.produccion.temporada:id,cultivo_id,nombre',
         'detalles.produccion.temporada.cultivo:id,nombre',
         'detalles.produccion.proceso:id,folio_proceso,recepcion_id,lote_id,fecha_proceso,fecha_entrada',
