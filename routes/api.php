@@ -827,7 +827,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Ventas
         Route::prefix('sales')->group(function () {
-            // Rutas de ventas...
+            Route::prefix('gestion-producto')->group(function () {
+                Route::prefix('etiquetas-sscc')->group(function () {
+                    Route::get('/', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'index']);
+                    Route::post('importar-excel', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'importExcel']);
+                    Route::post('marcar-impresas', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'markPrinted']);
+                    Route::delete('{ssccLabel}', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'destroy']);
+                });
+            });
         });
 
         // Exportaciones

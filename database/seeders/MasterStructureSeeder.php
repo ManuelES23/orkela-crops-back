@@ -819,6 +819,12 @@ class MasterStructureSeeder extends Seeder
         );
         $this->command->info("    → Gestión de Producto: Calculadora SSCC");
 
+        Submodule::firstOrCreate(
+            ['slug' => 'etiquetas-sscc', 'module_id' => $gestionProducto->id],
+            ['name' => 'Etiquetas SSCC', 'icon' => 'Tags', 'order' => 2, 'is_active' => true]
+        );
+        $this->command->info("    → Gestión de Producto: Etiquetas SSCC");
+
         // ========================================
         // APLICACIÓN: EXPORTACIONES
         // ========================================
