@@ -20,19 +20,13 @@ use Illuminate\Support\Str;
 class ProduccionEmpaqueController extends Controller
 {
     private array $eagerLoad = [
-        'temporada:id,nombre,cultivo_id',
-        'temporada.cultivo:id,nombre',
         'entity:id,name,code,abbreviation',
         'proceso:id,folio_proceso,productor_id,lote_id,recepcion_id',
         'proceso.productor:id,nombre,apellido',
         'proceso.lote:id,nombre,numero_lote',
-        'proceso.recepcion:id,temporada_id,salida_campo_id,lote_id,variedad_id,folio_recepcion,lote_producto_terminado',
-        'proceso.recepcion.lote:id,nombre,numero_lote,codigo',
-        'proceso.recepcion.temporada:id,nombre,cultivo_id',
-        'proceso.recepcion.temporada.cultivo:id,nombre',
+        'proceso.recepcion:id,salida_campo_id,variedad_id,lote_producto_terminado',
         'proceso.recepcion.variedad:id,nombre',
-        'proceso.recepcion.salidaCampo:id,variedad_id,lote_id',
-        'proceso.recepcion.salidaCampo.lote:id,nombre,numero_lote,codigo',
+        'proceso.recepcion.salidaCampo:id,variedad_id',
         'proceso.recepcion.salidaCampo.variedad:id,nombre',
         'variedad:id,nombre',
         'recipe:id,name,code,recipe_type,peso_pieza,output_quantity,output_product_id',
@@ -49,13 +43,9 @@ class ProduccionEmpaqueController extends Controller
         'detalles.proceso:id,folio_proceso,productor_id,lote_id,recepcion_id',
         'detalles.proceso.productor:id,nombre,apellido',
         'detalles.proceso.lote:id,nombre,numero_lote',
-        'detalles.proceso.recepcion:id,temporada_id,salida_campo_id,lote_id,variedad_id,folio_recepcion,lote_producto_terminado',
-        'detalles.proceso.recepcion.lote:id,nombre,numero_lote,codigo',
-        'detalles.proceso.recepcion.temporada:id,nombre,cultivo_id',
-        'detalles.proceso.recepcion.temporada.cultivo:id,nombre',
+        'detalles.proceso.recepcion:id,salida_campo_id,variedad_id,lote_producto_terminado',
         'detalles.proceso.recepcion.variedad:id,nombre',
-        'detalles.proceso.recepcion.salidaCampo:id,variedad_id,lote_id',
-        'detalles.proceso.recepcion.salidaCampo.lote:id,nombre,numero_lote,codigo',
+        'detalles.proceso.recepcion.salidaCampo:id,variedad_id',
         'detalles.proceso.recepcion.salidaCampo.variedad:id,nombre',
         'detalles.recipe:id,name,code,output_quantity,output_product_id',
         'detalles.recipe.recipeCalibres:id,recipe_id,calibre_id',
@@ -109,38 +99,43 @@ class ProduccionEmpaqueController extends Controller
 
         if ($asOf && $producciones->isNotEmpty()) {
             $ids = $producciones->pluck('id')->filter()->values();
-            $logsByModel = ActivityLog::query()
-                ->where('model', 'ProduccionEmpaque')
-                ->whereIn('model_id', $ids)
-                ->where('created_at', '<=', $asOf)
-                ->orderBy('created_at')
-                ->orderBy('id')
-                ->get(['model_id', 'new_values'])
-                ->groupBy('model_id');
+            $historicoByModelId = [];
 
-            $producciones->each(function (ProduccionEmpaque $produccion) use ($logsByModel) {
-                $logs = $logsByModel->get($produccion->id, collect());
-                if ($logs->isEmpty()) {
-                    return;
-                }
+            try {
+                ActivityLog::query()
+                    ->where('model', 'ProduccionEmpaque')
+                    ->whereIn('model_id', $ids)
+                    ->where('created_at', '<=', $asOf)
+                    ->orderBy('model_id')
+                    ->orderBy('created_at')
+                    ->orderBy('id')
+                    ->chunk(1000, function ($logs) use (&$historicoByModelId) {
+                        foreach ($logs as $log) {
+                            $newValues = $log->new_values;
 
-                // Conservar estado real por defecto; solo cambiar si hay un log explícito del campo.
-                $historicoEnCuartoFrio = (bool) $produccion->en_cuarto_frio;
-                $encontroCambioCuartoFrio = false;
-                foreach ($logs as $log) {
-                    if (is_array($log->new_values) && array_key_exists('en_cuarto_frio', $log->new_values)) {
-                        $historicoEnCuartoFrio = filter_var($log->new_values['en_cuarto_frio'], FILTER_VALIDATE_BOOLEAN);
-                        $encontroCambioCuartoFrio = true;
+                            if (! is_array($newValues) || ! array_key_exists('en_cuarto_frio', $newValues)) {
+                                continue;
+                            }
+
+                            $historicoByModelId[$log->model_id] = filter_var($newValues['en_cuarto_frio'], FILTER_VALIDATE_BOOLEAN);
+                        }
+                    });
+            } catch (QueryException $exception) {
+                // Si falla la consulta histórica (por datos legacy o alta carga), conservar estado actual para no romper el endpoint.
+                report($exception);
+            }
+
+            if (! empty($historicoByModelId)) {
+                $producciones->each(function (ProduccionEmpaque $produccion) use ($historicoByModelId) {
+                    if (! array_key_exists($produccion->id, $historicoByModelId)) {
+                        return;
                     }
-                }
 
-                if (! $encontroCambioCuartoFrio) {
-                    return;
-                }
-
-                $produccion->setAttribute('en_cuarto_frio', $historicoEnCuartoFrio);
-                $produccion->setAttribute('en_cuarto_frio_historico', $historicoEnCuartoFrio);
-            });
+                    $historicoEnCuartoFrio = (bool) $historicoByModelId[$produccion->id];
+                    $produccion->setAttribute('en_cuarto_frio', $historicoEnCuartoFrio);
+                    $produccion->setAttribute('en_cuarto_frio_historico', $historicoEnCuartoFrio);
+                });
+            }
         }
 
         $producciones->each(function (ProduccionEmpaque $produccion) {
