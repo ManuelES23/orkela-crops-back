@@ -32,6 +32,9 @@ class SsccLabelController extends Controller
                 $search = trim($validated['search']);
                 $builder->where(function ($nested) use ($search) {
                     $nested->where('sscc', 'like', "%{$search}%")
+                        ->orWhere('pallet_tag', 'like', "%{$search}%")
+                        ->orWhere('grower', 'like', "%{$search}%")
+                        ->orWhere('variety', 'like', "%{$search}%")
                         ->orWhere('product_code', 'like', "%{$search}%")
                         ->orWhere('product_name', 'like', "%{$search}%")
                         ->orWhere('lote', 'like', "%{$search}%");
@@ -66,7 +69,8 @@ class SsccLabelController extends Controller
         ]);
 
         $enterpriseId = $this->resolveEnterpriseId($request);
-        $rows = $this->spreadsheetService->parse($request->file('file'));
+        $parsed = $this->spreadsheetService->parseWithMeta($request->file('file'));
+        $rows = $parsed['rows'];
 
         if (count($rows) === 0) {
             return response()->json([
@@ -132,6 +136,10 @@ class SsccLabelController extends Controller
                         'product_code' => $row['product_code'] ?? null,
                         'product_name' => $row['product_name'] ?? null,
                         'lote' => $row['lote'] ?? null,
+                        'pallet_tag' => $row['pallet_tag'] ?? null,
+                        'grower' => $row['grower'] ?? null,
+                        'variety' => $row['variety'] ?? null,
+                        'boxes_count' => $row['boxes_count'] ?? null,
                         'presentation' => $row['presentation'] ?? null,
                         'pack_date' => $row['pack_date'] ?? null,
                         'sscc' => $sscc,
@@ -162,8 +170,143 @@ class SsccLabelController extends Controller
                 'batch_code' => $batchCode,
                 'created' => $created,
                 'labels' => $labels,
+                'detected_headers' => $parsed['headers'],
+                'sample_rows' => $parsed['sample_rows'],
             ],
         ], 201);
+    }
+
+    public function createManual(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'company_prefix' => 'required|string|regex:/^\d{6,12}$/',
+            'extension_digit' => 'required|string|regex:/^\d$/',
+            'serial_start' => 'nullable|integer|min:0|max:99999999999999999',
+            'items' => 'required|array|min:1|max:500',
+            'items.*.pallet_tag' => 'required|string|max:120',
+            'items.*.grower' => 'required|string|max:180',
+            'items.*.boxes_count' => 'required|integer|min:1|max:999999',
+            'items.*.pack_date' => 'required|date',
+            'items.*.variety' => 'required|string|max:180',
+            'items.*.presentation' => 'required|string|max:180',
+            'items.*.product_code' => 'nullable|string|max:120',
+            'items.*.product_name' => 'nullable|string|max:255',
+            'items.*.lote' => 'nullable|string|max:120',
+            'items.*.labels_count' => 'nullable|integer|min:1|max:5000',
+            'items.*.serial_reference' => 'nullable|integer|min:0|max:99999999999999999',
+        ]);
+
+        $enterpriseId = $this->resolveEnterpriseId($request);
+        $batchCode = 'SSCC-MANUAL-' . now()->format('YmdHis');
+
+        $nextSerial = $this->getNextSerial(
+            $enterpriseId,
+            $validated['company_prefix'],
+            $validated['extension_digit'],
+            $validated['serial_start'] ?? null,
+        );
+
+        $created = 0;
+
+        DB::transaction(function () use (
+            $validated,
+            $enterpriseId,
+            $request,
+            $batchCode,
+            &$nextSerial,
+            &$created
+        ) {
+            foreach ($validated['items'] as $index => $item) {
+                $labelsCount = (int) ($item['labels_count'] ?? 1);
+
+                for ($i = 0; $i < $labelsCount; $i++) {
+                    $serialReference = $item['serial_reference'] ?? $nextSerial;
+
+                    if ($i > 0 || empty($item['serial_reference'])) {
+                        $serialReference = $nextSerial;
+                    }
+
+                    $sscc = $this->ssccGeneratorService->generate(
+                        $validated['company_prefix'],
+                        $validated['extension_digit'],
+                        $serialReference,
+                    );
+
+                    while (SalesSsccLabel::query()->where('sscc', $sscc)->exists()) {
+                        $nextSerial++;
+                        $serialReference = $nextSerial;
+                        $sscc = $this->ssccGeneratorService->generate(
+                            $validated['company_prefix'],
+                            $validated['extension_digit'],
+                            $serialReference,
+                        );
+                    }
+
+                    SalesSsccLabel::create([
+                        'enterprise_id' => $enterpriseId,
+                        'created_by_user_id' => $request->user()?->id,
+                        'source_file' => null,
+                        'batch_code' => $batchCode,
+                        'row_number' => $index + 1,
+                        'product_code' => $item['product_code'] ?? null,
+                        'product_name' => $item['product_name'] ?? null,
+                        'lote' => $item['lote'] ?? null,
+                        'pallet_tag' => $item['pallet_tag'],
+                        'grower' => $item['grower'],
+                        'variety' => $item['variety'],
+                        'boxes_count' => (int) $item['boxes_count'],
+                        'presentation' => $item['presentation'],
+                        'pack_date' => $item['pack_date'],
+                        'sscc' => $sscc,
+                        'serial_reference' => $serialReference,
+                        'company_prefix' => $validated['company_prefix'],
+                        'extension_digit' => $validated['extension_digit'],
+                        'status' => 'generated',
+                        'raw_data' => $item,
+                    ]);
+
+                    $created++;
+                    $nextSerial = max($nextSerial, (int) $serialReference + 1);
+                }
+            }
+        });
+
+        $labels = SalesSsccLabel::query()
+            ->where('enterprise_id', $enterpriseId)
+            ->where('batch_code', $batchCode)
+            ->orderBy('id')
+            ->limit(200)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Etiquetas SSCC generadas manualmente.',
+            'data' => [
+                'batch_code' => $batchCode,
+                'created' => $created,
+                'labels' => $labels,
+            ],
+        ], 201);
+    }
+
+    public function previewExcel(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv,txt|max:10240',
+        ]);
+
+        $parsed = $this->spreadsheetService->parseWithMeta($request->file('file'));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Archivo analizado correctamente.',
+            'data' => [
+                'source_file' => $request->file('file')->getClientOriginalName(),
+                'detected_headers' => $parsed['headers'],
+                'sample_rows' => $parsed['sample_rows'],
+                'valid_rows' => count($parsed['rows']),
+            ],
+        ]);
     }
 
     public function markPrinted(Request $request): JsonResponse

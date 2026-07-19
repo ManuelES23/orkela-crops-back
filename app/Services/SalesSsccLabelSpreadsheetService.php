@@ -14,17 +14,35 @@ class SalesSsccLabelSpreadsheetService
      */
     public function parse(UploadedFile $file): array
     {
+        $parsed = $this->parseWithMeta($file);
+
+        return $parsed['rows'];
+    }
+
+    /**
+     * @return array{rows: array<int, array<string, mixed>>, headers: array<int, string>, sample_rows: array<int, array<string, mixed>>}
+     */
+    public function parseWithMeta(UploadedFile $file): array
+    {
         $spreadsheet = IOFactory::load($file->getRealPath());
         $sheet = $spreadsheet->getActiveSheet();
         $rows = $sheet->toArray(null, true, true, false);
 
         if (count($rows) < 2) {
-            return [];
+            return [
+                'rows' => [],
+                'headers' => [],
+                'sample_rows' => [],
+            ];
         }
 
         [$headerRowIndex, $headers] = $this->detectHeaders($rows);
         if ($headerRowIndex === null) {
-            return [];
+            return [
+                'rows' => [],
+                'headers' => [],
+                'sample_rows' => [],
+            ];
         }
 
         $dataRows = array_slice($rows, $headerRowIndex + 1);
@@ -48,7 +66,11 @@ class SalesSsccLabelSpreadsheetService
             $parsedRows[] = $normalized;
         }
 
-        return $parsedRows;
+        return [
+            'rows' => $parsedRows,
+            'headers' => array_values(array_filter($headers, fn ($header) => $header !== '')),
+            'sample_rows' => array_slice($parsedRows, 0, 5),
+        ];
     }
 
     /**
@@ -61,8 +83,26 @@ class SalesSsccLabelSpreadsheetService
 
         for ($i = 0; $i < $maxScan; $i++) {
             $candidate = array_map(fn ($value) => $this->normalizeHeader((string) $value), $rows[$i]);
-            $hasProduct = $this->containsAny($candidate, ['codigo', 'codigo_producto', 'sku', 'producto', 'product_name']);
-            $hasQty = $this->containsAny($candidate, ['cantidad_etiquetas', 'cantidad', 'etiquetas', 'labels', 'qty']);
+            $hasProduct = $this->containsAny($candidate, [
+                'codigo',
+                'codigo_producto',
+                'sku',
+                'producto',
+                'product_name',
+                'articulo',
+                'item',
+                'clave_producto',
+            ]);
+            $hasQty = $this->containsAny($candidate, [
+                'cantidad_etiquetas',
+                'cantidad',
+                'etiquetas',
+                'labels',
+                'qty',
+                'cajas',
+                'cantidad_cajas',
+                'cantidad_piezas',
+            ]);
 
             if ($hasProduct || $hasQty) {
                 return [$i, $candidate];
@@ -101,19 +141,92 @@ class SalesSsccLabelSpreadsheetService
      */
     private function normalizeRow(array $row): ?array
     {
-        $productCode = $this->firstString($row, ['codigo', 'codigo_producto', 'product_code', 'sku', 'clave']);
-        $productName = $this->firstString($row, ['producto', 'nombre_producto', 'product_name', 'descripcion', 'description']);
-        $lote = $this->firstString($row, ['lote', 'lote_pt', 'lot', 'lote_producto_terminado']);
-        $presentation = $this->firstString($row, ['presentacion', 'empaque', 'formato', 'presentation']);
+        $productCode = $this->firstString($row, [
+            'codigo',
+            'codigo_producto',
+            'product_code',
+            'sku',
+            'clave',
+            'clave_producto',
+            'upc',
+            'gtin',
+            'ean',
+        ]);
+        $productName = $this->firstString($row, [
+            'producto',
+            'nombre_producto',
+            'product_name',
+            'descripcion',
+            'description',
+            'articulo',
+            'item',
+            'nombre',
+        ]);
+        $lote = $this->firstString($row, [
+            'lote',
+            'lote_pt',
+            'lot',
+            'lote_producto_terminado',
+            'lote_produccion',
+        ]);
+        $presentation = $this->firstString($row, [
+            'presentacion',
+            'empaque',
+            'formato',
+            'presentation',
+            'tipo_empaque',
+            'caja',
+            'cajas_tipo',
+        ]);
+        $palletTag = $this->firstString($row, [
+            'pallet_tag',
+            'pallet_id',
+            'tag_pallet',
+            'id_pallet',
+            'tarima',
+            'id_tarima',
+        ]);
+        $grower = $this->firstString($row, [
+            'grower',
+            'productor',
+            'agricultor',
+            'proveedor',
+        ]);
+        $variety = $this->firstString($row, [
+            'variedad',
+            'variety',
+            'cultivar',
+        ]);
 
-        $packDateRaw = $this->firstValue($row, ['fecha', 'fecha_empaque', 'pack_date', 'fecha_produccion']);
+        $packDateRaw = $this->firstValue($row, [
+            'fecha',
+            'fecha_empaque',
+            'pack_date',
+            'fecha_produccion',
+            'fecha_embarque',
+            'fecha_orden',
+        ]);
         $packDate = $this->parseDate($packDateRaw);
 
-        $labelsCountRaw = $this->firstValue($row, ['cantidad_etiquetas', 'cantidad', 'etiquetas', 'labels', 'qty']);
+        $labelsCountRaw = $this->firstValue($row, [
+            'cantidad_etiquetas',
+            'cantidad',
+            'etiquetas',
+            'labels',
+            'qty',
+            'cajas',
+            'cantidad_cajas',
+            'cantidad_piezas',
+        ]);
         $labelsCount = is_numeric($labelsCountRaw) ? max(1, (int) $labelsCountRaw) : 1;
+        $boxesCount = is_numeric($labelsCountRaw) ? max(1, (int) $labelsCountRaw) : null;
 
         $serialRaw = $this->firstValue($row, ['serial_reference', 'serial', 'referencia_serial']);
         $serialReference = is_numeric($serialRaw) ? (int) $serialRaw : null;
+
+        $customer = $this->firstString($row, ['cliente', 'customer', 'razon_social']);
+        $orderNumber = $this->firstString($row, ['orden_venta', 'order_number', 'pedido', 'ov', 'po']);
+        $gtin = $this->firstString($row, ['gtin', 'upc', 'ean']);
 
         if (! $productCode && ! $productName && ! $lote) {
             return null;
@@ -123,10 +236,17 @@ class SalesSsccLabelSpreadsheetService
             'product_code' => $productCode,
             'product_name' => $productName,
             'lote' => $lote,
+            'pallet_tag' => $palletTag,
+            'grower' => $grower,
+            'variety' => $variety,
+            'boxes_count' => $boxesCount,
             'presentation' => $presentation,
             'pack_date' => $packDate,
             'labels_count' => $labelsCount,
             'serial_reference' => $serialReference,
+            'customer' => $customer,
+            'order_number' => $orderNumber,
+            'gtin' => $gtin,
             'raw_data' => $row,
         ];
     }

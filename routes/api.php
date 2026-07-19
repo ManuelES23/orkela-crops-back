@@ -830,7 +830,9 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::prefix('gestion-producto')->group(function () {
                 Route::prefix('etiquetas-sscc')->group(function () {
                     Route::get('/', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'index']);
+                    Route::post('preview-excel', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'previewExcel']);
                     Route::post('importar-excel', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'importExcel']);
+                    Route::post('crear-manual', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'createManual']);
                     Route::post('marcar-impresas', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'markPrinted']);
                     Route::delete('{ssccLabel}', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'destroy']);
                 });
