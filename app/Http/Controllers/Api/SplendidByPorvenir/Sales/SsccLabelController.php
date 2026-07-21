@@ -10,9 +10,13 @@ use App\Services\SsccGeneratorService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 
 class SsccLabelController extends Controller
 {
+    private ?array $labelColumns = null;
+
     public function __construct(
         private readonly SalesSsccLabelSpreadsheetService $spreadsheetService,
         private readonly SsccGeneratorService $ssccGeneratorService,
@@ -31,13 +35,17 @@ class SsccLabelController extends Controller
             ->when(! empty($validated['search']), function ($builder) use ($validated) {
                 $search = trim($validated['search']);
                 $builder->where(function ($nested) use ($search) {
-                    $nested->where('sscc', 'like', "%{$search}%")
-                        ->orWhere('pallet_tag', 'like', "%{$search}%")
-                        ->orWhere('grower', 'like', "%{$search}%")
-                        ->orWhere('variety', 'like', "%{$search}%")
-                        ->orWhere('product_code', 'like', "%{$search}%")
-                        ->orWhere('product_name', 'like', "%{$search}%")
-                        ->orWhere('lote', 'like', "%{$search}%");
+                    if ($this->hasLabelColumn('sscc')) {
+                        $nested->where('sscc', 'like', "%{$search}%");
+                    }
+
+                    $nested
+                        ->when($this->hasLabelColumn('pallet_tag'), fn ($q) => $q->orWhere('pallet_tag', 'like', "%{$search}%"))
+                        ->when($this->hasLabelColumn('grower'), fn ($q) => $q->orWhere('grower', 'like', "%{$search}%"))
+                        ->when($this->hasLabelColumn('variety'), fn ($q) => $q->orWhere('variety', 'like', "%{$search}%"))
+                        ->when($this->hasLabelColumn('product_code'), fn ($q) => $q->orWhere('product_code', 'like', "%{$search}%"))
+                        ->when($this->hasLabelColumn('product_name'), fn ($q) => $q->orWhere('product_name', 'like', "%{$search}%"))
+                        ->when($this->hasLabelColumn('lote'), fn ($q) => $q->orWhere('lote', 'like', "%{$search}%"));
                 });
             })
             ->when(! empty($validated['batch_code']), function ($builder) use ($validated) {
@@ -66,6 +74,10 @@ class SsccLabelController extends Controller
             'company_prefix' => 'required|string|regex:/^\d{6,12}$/',
             'extension_digit' => 'required|string|regex:/^\d$/',
             'serial_start' => 'nullable|integer|min:0|max:99999999999999999',
+            'lote' => 'nullable|string|max:120',
+            'pack_date' => 'nullable|date',
+            'product_of_country' => 'nullable|string|in:MX,US',
+            'product_of_state' => 'nullable|string|regex:/^[A-Z]{2,3}$/',
         ]);
 
         $enterpriseId = $this->resolveEnterpriseId($request);
@@ -81,6 +93,8 @@ class SsccLabelController extends Controller
 
         $batchCode = 'SSCC-' . now()->format('YmdHis');
         $sourceFile = $request->file('file')->getClientOriginalName();
+
+        $this->validateUniquePalletTagsFromRows($rows, $enterpriseId);
 
         $nextSerial = $this->getNextSerial(
             $enterpriseId,
@@ -117,7 +131,7 @@ class SsccLabelController extends Controller
                         $serialReference,
                     );
 
-                    while (SalesSsccLabel::query()->where('sscc', $sscc)->exists()) {
+                    while (SalesSsccLabel::withTrashed()->where('sscc', $sscc)->exists()) {
                         $nextSerial++;
                         $serialReference = $nextSerial;
                         $sscc = $this->ssccGeneratorService->generate(
@@ -127,7 +141,7 @@ class SsccLabelController extends Controller
                         );
                     }
 
-                    SalesSsccLabel::create([
+                    SalesSsccLabel::create($this->filterLabelPayload([
                         'enterprise_id' => $enterpriseId,
                         'created_by_user_id' => $request->user()?->id,
                         'source_file' => $sourceFile,
@@ -135,20 +149,22 @@ class SsccLabelController extends Controller
                         'row_number' => $row['row_number'] ?? 0,
                         'product_code' => $row['product_code'] ?? null,
                         'product_name' => $row['product_name'] ?? null,
-                        'lote' => $row['lote'] ?? null,
-                        'pallet_tag' => $row['pallet_tag'] ?? null,
+                        'lote' => $row['lote'] ?? ($validated['lote'] ?? null),
+                        'pallet_tag' => $this->normalizePalletTag($row['pallet_tag'] ?? null),
                         'grower' => $row['grower'] ?? null,
                         'variety' => $row['variety'] ?? null,
                         'boxes_count' => $row['boxes_count'] ?? null,
                         'presentation' => $row['presentation'] ?? null,
-                        'pack_date' => $row['pack_date'] ?? null,
+                        'pack_date' => $row['pack_date'] ?? ($validated['pack_date'] ?? null),
+                        'product_of_country' => $row['product_of_country'] ?? ($validated['product_of_country'] ?? null),
+                        'product_of_state' => $row['product_of_state'] ?? ($validated['product_of_state'] ?? null),
                         'sscc' => $sscc,
                         'serial_reference' => $serialReference,
                         'company_prefix' => $validated['company_prefix'],
                         'extension_digit' => $validated['extension_digit'],
                         'status' => 'generated',
                         'raw_data' => $row['raw_data'] ?? null,
-                    ]);
+                    ]));
 
                     $created++;
                     $nextSerial = max($nextSerial, (int) $serialReference + 1);
@@ -192,12 +208,16 @@ class SsccLabelController extends Controller
             'items.*.product_code' => 'nullable|string|max:120',
             'items.*.product_name' => 'nullable|string|max:255',
             'items.*.lote' => 'nullable|string|max:120',
+            'items.*.product_of_country' => 'nullable|string|in:MX,US',
+            'items.*.product_of_state' => 'nullable|string|regex:/^[A-Z]{2,3}$/',
             'items.*.labels_count' => 'nullable|integer|min:1|max:5000',
             'items.*.serial_reference' => 'nullable|integer|min:0|max:99999999999999999',
         ]);
 
         $enterpriseId = $this->resolveEnterpriseId($request);
         $batchCode = 'SSCC-MANUAL-' . now()->format('YmdHis');
+
+        $this->validateUniquePalletTagsFromManualItems($validated['items'], $enterpriseId);
 
         $nextSerial = $this->getNextSerial(
             $enterpriseId,
@@ -232,7 +252,7 @@ class SsccLabelController extends Controller
                         $serialReference,
                     );
 
-                    while (SalesSsccLabel::query()->where('sscc', $sscc)->exists()) {
+                    while (SalesSsccLabel::withTrashed()->where('sscc', $sscc)->exists()) {
                         $nextSerial++;
                         $serialReference = $nextSerial;
                         $sscc = $this->ssccGeneratorService->generate(
@@ -242,7 +262,7 @@ class SsccLabelController extends Controller
                         );
                     }
 
-                    SalesSsccLabel::create([
+                    SalesSsccLabel::create($this->filterLabelPayload([
                         'enterprise_id' => $enterpriseId,
                         'created_by_user_id' => $request->user()?->id,
                         'source_file' => null,
@@ -251,19 +271,21 @@ class SsccLabelController extends Controller
                         'product_code' => $item['product_code'] ?? null,
                         'product_name' => $item['product_name'] ?? null,
                         'lote' => $item['lote'] ?? null,
-                        'pallet_tag' => $item['pallet_tag'],
+                        'pallet_tag' => $this->normalizePalletTag($item['pallet_tag']),
                         'grower' => $item['grower'],
                         'variety' => $item['variety'],
                         'boxes_count' => (int) $item['boxes_count'],
                         'presentation' => $item['presentation'],
                         'pack_date' => $item['pack_date'],
+                        'product_of_country' => $item['product_of_country'] ?? null,
+                        'product_of_state' => $item['product_of_state'] ?? null,
                         'sscc' => $sscc,
                         'serial_reference' => $serialReference,
                         'company_prefix' => $validated['company_prefix'],
                         'extension_digit' => $validated['extension_digit'],
                         'status' => 'generated',
                         'raw_data' => $item,
-                    ]);
+                    ]));
 
                     $created++;
                     $nextSerial = max($nextSerial, (int) $serialReference + 1);
@@ -373,7 +395,7 @@ class SsccLabelController extends Controller
 
     private function getNextSerial(int $enterpriseId, string $companyPrefix, string $extensionDigit, ?int $serialStart): int
     {
-        $lastSerial = (int) (SalesSsccLabel::query()
+        $lastSerial = (int) (SalesSsccLabel::withTrashed()
             ->where('enterprise_id', $enterpriseId)
             ->where('company_prefix', $companyPrefix)
             ->where('extension_digit', $extensionDigit)
@@ -384,5 +406,122 @@ class SsccLabelController extends Controller
         }
 
         return max($lastSerial + 1, $serialStart);
+    }
+
+    private function filterLabelPayload(array $payload): array
+    {
+        $available = array_flip($this->getLabelColumns());
+
+        return array_filter(
+            $payload,
+            fn ($_, $key) => isset($available[$key]),
+            ARRAY_FILTER_USE_BOTH
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function getLabelColumns(): array
+    {
+        if ($this->labelColumns !== null) {
+            return $this->labelColumns;
+        }
+
+        $this->labelColumns = Schema::getColumnListing('sales_sscc_labels');
+
+        return $this->labelColumns;
+    }
+
+    private function hasLabelColumn(string $column): bool
+    {
+        return in_array($column, $this->getLabelColumns(), true);
+    }
+
+    private function normalizePalletTag(mixed $value): ?string
+    {
+        $normalized = trim(preg_replace('/\s+/', ' ', (string) ($value ?? '')) ?? '');
+
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     *
+     * @throws ValidationException
+     */
+    private function validateUniquePalletTagsFromRows(array $rows, int $enterpriseId): void
+    {
+        $seen = [];
+
+        foreach ($rows as $index => $row) {
+            $palletTag = $this->normalizePalletTag($row['pallet_tag'] ?? null);
+            if ($palletTag === null) {
+                continue;
+            }
+
+            $key = mb_strtolower($palletTag);
+            if (isset($seen[$key])) {
+                $firstRow = $seen[$key];
+                $currentRow = (int) ($row['row_number'] ?? ($index + 1));
+
+                throw ValidationException::withMessages([
+                    'file' => "El pallet/tag '{$palletTag}' esta duplicado en el archivo (filas {$firstRow} y {$currentRow}).",
+                ]);
+            }
+
+            $exists = SalesSsccLabel::withTrashed()
+                ->where('enterprise_id', $enterpriseId)
+                ->whereRaw('LOWER(TRIM(pallet_tag)) = ?', [mb_strtolower($palletTag)])
+                ->exists();
+
+            if ($exists) {
+                throw ValidationException::withMessages([
+                    'file' => "El pallet/tag '{$palletTag}' ya existe en el sistema.",
+                ]);
+            }
+
+            $seen[$key] = (int) ($row['row_number'] ?? ($index + 1));
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     *
+     * @throws ValidationException
+     */
+    private function validateUniquePalletTagsFromManualItems(array $items, int $enterpriseId): void
+    {
+        $seen = [];
+
+        foreach ($items as $index => $item) {
+            $palletTag = $this->normalizePalletTag($item['pallet_tag'] ?? null);
+            if ($palletTag === null) {
+                continue;
+            }
+
+            $key = mb_strtolower($palletTag);
+            if (isset($seen[$key])) {
+                $firstRow = $seen[$key];
+                $currentRow = $index + 1;
+
+                throw ValidationException::withMessages([
+                    'items' => "El pallet/tag '{$palletTag}' esta duplicado en captura manual (filas {$firstRow} y {$currentRow}).",
+                ]);
+            }
+
+            $exists = SalesSsccLabel::withTrashed()
+                ->where('enterprise_id', $enterpriseId)
+                ->whereRaw('LOWER(TRIM(pallet_tag)) = ?', [mb_strtolower($palletTag)])
+                ->exists();
+
+            if ($exists) {
+                throw ValidationException::withMessages([
+                    'items' => "El pallet/tag '{$palletTag}' ya existe en el sistema.",
+                ]);
+            }
+
+            $seen[$key] = $index + 1;
+        }
     }
 }

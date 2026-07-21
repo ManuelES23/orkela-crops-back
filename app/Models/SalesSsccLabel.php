@@ -29,6 +29,8 @@ class SalesSsccLabel extends Model
         'boxes_count',
         'presentation',
         'pack_date',
+        'product_of_country',
+        'product_of_state',
         'sscc',
         'serial_reference',
         'company_prefix',
