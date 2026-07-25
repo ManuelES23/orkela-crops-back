@@ -35,8 +35,8 @@ return new class extends Migration
             $submoduleId = DB::table('submodules')->insertGetId([
                 'module_id' => $moduleId,
                 'slug' => 'cajas-producidas',
-                'name' => 'Cajas producidas',
-                'description' => 'Reporte administrativo de cajas producidas por empaque',
+                'name' => 'Producción',
+                'description' => 'Reporte administrativo de producción por empaque',
                 'icon' => 'Package',
                 'path' => null,
                 'order' => 2,
