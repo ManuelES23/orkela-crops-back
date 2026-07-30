@@ -37,7 +37,16 @@ class InventoryMovementController extends Controller
     {
         $enterprise = $this->getEnterprise($request);
         if (!$enterprise) return [];
-        return $enterprise->accessibleEntities()->pluck('entities.id')->toArray();
+
+        // Entidades propias (vinculadas a sucursales de esta empresa)
+        $ownIds = Entity::whereHas('branch', function ($q) use ($enterprise) {
+            $q->where('enterprise_id', $enterprise->id);
+        })->pluck('id')->toArray();
+
+        // Entidades compartidas (pivot enterprise_entity de otras empresas)
+        $linkedIds = $enterprise->accessibleEntities()->pluck('entities.id')->toArray();
+
+        return array_unique(array_merge($ownIds, $linkedIds));
     }
 
     /**
