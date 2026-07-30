@@ -21,13 +21,17 @@ class CatalogoOAController extends Controller
     public function variedades(Request $request): JsonResponse
     {
         $request->validate([
-            'cultivo_id' => 'required|exists:cultivos,id',
+            'cultivo_id' => 'nullable|exists:cultivos,id',
         ]);
 
-        $variedades = Variedad::where('cultivo_id', $request->cultivo_id)
-            ->with('tiposVariedad:id,variedad_id,nombre')
-            ->orderBy('nombre')
-            ->get(['id', 'cultivo_id', 'nombre', 'descripcion']);
+        $query = Variedad::with('tiposVariedad:id,variedad_id,nombre')
+            ->orderBy('nombre');
+
+        if ($request->filled('cultivo_id')) {
+            $query->where('cultivo_id', $request->cultivo_id);
+        }
+
+        $variedades = $query->get(['id', 'cultivo_id', 'nombre', 'descripcion']);
 
         return response()->json([
             'success' => true,

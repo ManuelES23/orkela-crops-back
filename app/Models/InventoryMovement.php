@@ -228,8 +228,10 @@ class InventoryMovement extends Model
         $year = date('Y');
         $month = date('m');
         
-        $lastMovement = self::where('document_number', 'like', "{$prefix}-{$year}{$month}-%")
+        $lastMovement = self::withTrashed()
+            ->where('document_number', 'like', "{$prefix}-{$year}{$month}-%")
             ->orderByRaw('CAST(SUBSTRING(document_number, -5) AS UNSIGNED) DESC')
+            ->lockForUpdate()
             ->first();
         
         if ($lastMovement) {

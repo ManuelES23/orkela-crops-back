@@ -1,13 +1,9 @@
-# ── CORS fallback: garantizar headers aunque PHP falle catastróficamente ──────
-# Apache agrega estos headers SÓLO si PHP no los emitió (p.ej. OOM / timeout).
 <IfModule mod_headers.c>
     Header always setifempty Access-Control-Allow-Origin  "https://sentinelneo.netlify.app"
     Header always setifempty Access-Control-Allow-Credentials "true"
     Header always setifempty Access-Control-Allow-Methods  "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     Header always setifempty Access-Control-Allow-Headers  "Content-Type, Authorization, X-Enterprise-Slug, X-Application-Slug, X-Module-Slug, X-Submodule-Slug"
 </IfModule>
-
-# ── Límites PHP para endpoints con eager-loading masivo (produccion, etc.) ─────
 <IfModule mod_php.c>
     php_value memory_limit      512M
     php_value max_execution_time 120

@@ -381,6 +381,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('entidades/{entity}/stock', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryMovementController::class, 'entityStock']);
 
                 // Movimientos generales
+                Route::get('movimientos/next-folio', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryMovementController::class, 'nextFolio']);
                 Route::apiResource('movimientos', App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryMovementController::class)
                     ->parameters(['movimientos' => 'movement']);
                 Route::get('movimientos/{movement}/pdf', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryMovementController::class, 'pdf']);
@@ -521,6 +522,16 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('requisiciones/proveedores', [App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\RequisicionCampoController::class, 'suppliers']);
                 Route::apiResource('requisiciones', App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\RequisicionCampoController::class)
                     ->parameters(['requisiciones' => 'requisicion']);
+
+                // Aplicaciones de agroquímicos y fertilizantes
+                Route::get('aplicaciones/folio-preview', [App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\AplicacionController::class, 'folioPreview']);
+                Route::apiResource('aplicaciones', App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\AplicacionController::class)
+                    ->parameters(['aplicaciones' => 'aplicacion']);
+
+                // Catálogo de productos de aplicación
+                Route::apiResource('productos-aplicacion', App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\ProductoAplicacionController::class)
+                    ->parameters(['productos-aplicacion' => 'productoAplicacion'])
+                    ->only(['index', 'store', 'update']);
 
                 // Costeo agrícola (Fase 2)
                 Route::get('costeo/dashboard', [App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\CosteoAgricolaController::class, 'dashboard']);
@@ -781,6 +792,8 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('entidades-accesibles', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryMovementController::class, 'accessibleEntities']);
                 Route::get('entidades/{entity}/stock', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryMovementController::class, 'entityStock']);
 
+                // Movimientos generales
+                Route::get('movimientos/next-folio', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryMovementController::class, 'nextFolio']);
                 Route::apiResource('movimientos', App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryMovementController::class)
                     ->parameters(['movimientos' => 'movement']);
                 Route::post('movimientos/{movement}/approve', [App\Http\Controllers\Api\SplendidFarms\Inventory\InventoryMovementController::class, 'approve']);

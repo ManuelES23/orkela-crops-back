@@ -197,6 +197,21 @@ class InventoryMovementController extends Controller
         ]);
     }
     /**
+     * Retorna el siguiente número de folio para una dirección dada.
+     * GET ?direction=transfer|in|out|adjustment
+     */
+    public function nextFolio(Request $request): JsonResponse
+    {
+        $direction = $request->input('direction', 'transfer');
+        $nextFolio = InventoryMovement::generateDocumentNumber($direction);
+
+        return response()->json([
+            'success' => true,
+            'data' => ['next_folio' => $nextFolio],
+        ]);
+    }
+
+    /**
      * Display a listing of the resource.
      */
     public function index(Request $request): JsonResponse
@@ -407,7 +422,9 @@ class InventoryMovementController extends Controller
             );
 
             $movement = InventoryMovement::create([
-                'document_number' => InventoryMovement::generateDocumentNumber($movementType->direction),
+                'document_number' => filled($validated['document_number'] ?? null)
+                    ? trim($validated['document_number'])
+                    : InventoryMovement::generateDocumentNumber($movementType->direction),
                 'movement_type_id' => $validated['movement_type_id'],
                 'source_entity_id' => $validated['source_entity_id'] ?? null,
                 'source_entity_type' => $validated['source_entity_type'] ?? null,
@@ -1074,7 +1091,7 @@ class InventoryMovementController extends Controller
         }
 
         $validated = $request->validate([
-            'reason' => 'required|string|max:500',
+            'reason' => 'nullable|string|max:500',
         ]);
 
         DB::beginTransaction();
