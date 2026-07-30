@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\SplendidFarms\Inventory;
 
 use App\Http\Controllers\Controller;
+use App\Events\InventoryMovementUpdated;
 use App\Models\Enterprise;
 use App\Models\Entity;
 use App\Models\InventoryMovement;
@@ -477,6 +478,8 @@ class InventoryMovementController extends Controller
                 'createdBy:id,name',
             ]);
 
+            $this->broadcastMovement('created', $movement);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Movimiento creado exitosamente',
@@ -701,6 +704,8 @@ class InventoryMovementController extends Controller
                 'createdBy:id,name',
             ]);
 
+            $this->broadcastMovement('updated', $movement);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Movimiento actualizado exitosamente',
@@ -739,6 +744,8 @@ class InventoryMovementController extends Controller
             $movement->delete();
 
             DB::commit();
+
+            $this->broadcastMovement('deleted', $movement);
 
             return response()->json([
                 'success' => true,
@@ -959,10 +966,13 @@ class InventoryMovementController extends Controller
 
             DB::commit();
 
+            $freshMovement = $movement->fresh(['movementType', 'sourceEntity:id,name,code', 'destinationEntity:id,name,code', 'details', 'approvedBy:id,name', 'createdBy:id,name']);
+            $this->broadcastMovement('approved', $freshMovement);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Movimiento aprobado y ejecutado exitosamente',
-                'data' => $movement->fresh(['movementType', 'details', 'approvedBy:id,name'])
+                'data' => $freshMovement
             ]);
 
         } catch (\Exception $e) {
@@ -1006,6 +1016,47 @@ class InventoryMovementController extends Controller
 
         $safeNumber = preg_replace('/[^A-Za-z0-9\-_]/', '-', (string) ($movement->document_number ?? $movement->id));
         return $pdf->download("movimiento-{$safeNumber}.pdf");
+    }
+
+    /**
+     * Emite un evento de broadcast a todas las empresas con entidades involucradas en el movimiento.
+     * Para transferencias cross-enterprise, notifica tanto al emisor como al receptor.
+     */
+    private function broadcastMovement(string $action, InventoryMovement $movement): void
+    {
+        try {
+            $movement->loadMissing([
+                'movementType:id,code,name,direction,effect,color,icon',
+                'sourceEntity:id,name,code',
+                'destinationEntity:id,name,code',
+                'createdBy:id,name',
+            ]);
+
+            $slugs = [];
+
+            if ($movement->source_entity_id) {
+                $src = $this->getEntityOwnerEnterprise($movement->source_entity_id);
+                if ($src?->slug) $slugs[] = $src->slug;
+            }
+
+            if ($movement->destination_entity_id) {
+                $dst = $this->getEntityOwnerEnterprise($movement->destination_entity_id);
+                if ($dst?->slug) $slugs[] = $dst->slug;
+            }
+
+            $reqSlug = request()->header('X-Enterprise-Slug');
+            if ($reqSlug) $slugs[] = $reqSlug;
+
+            $slugs = array_values(array_unique(array_filter($slugs)));
+            if (empty($slugs)) return;
+
+            $data = $movement->toArray();
+            $data['details_count'] = $movement->details()->count();
+
+            event(new InventoryMovementUpdated($action, $data, $slugs));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[InventoryMovement] broadcastMovement failed: ' . $e->getMessage());
+        }
     }
 
     private function resolveUserEnterpriseId(Request $request): ?int
@@ -1159,10 +1210,13 @@ class InventoryMovementController extends Controller
 
             DB::commit();
 
+            $freshMovement = $movement->fresh(['movementType', 'sourceEntity:id,name,code', 'destinationEntity:id,name,code', 'createdBy:id,name']);
+            $this->broadcastMovement('cancelled', $freshMovement);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Movimiento cancelado exitosamente',
-                'data' => $movement->fresh()
+                'data' => $freshMovement
             ]);
 
         } catch (\Exception $e) {
