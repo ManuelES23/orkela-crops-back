@@ -74,6 +74,13 @@ if (config('broadcasting.default') !== 'null' && config('broadcasting.default') 
             return $user->employee && (int) $user->employee->id === (int) $employeeId;
         });
 
+        // Canal CRM por empresa (eventos transversales: asignación de vendedor, etc.)
+        Broadcast::channel('crm.{empresaId}', function ($user, $empresaId) {
+            return $user->activeEnterprises()
+                ->where('enterprises.id', $empresaId)
+                ->exists();
+        });
+
     } catch (\Exception $e) {
         Log::warning('Broadcasting channels could not be registered: ' . $e->getMessage());
     }

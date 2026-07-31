@@ -257,12 +257,17 @@ class InventoryMovementController extends Controller
             $query->where('status', $request->status);
         }
 
-        // Filtrar por tipo de movimiento
+        // Filtrar por tipo de movimiento (singular o array)
         if ($request->filled('movement_type_id')) {
             $query->where('movement_type_id', $request->movement_type_id);
+        } elseif ($request->filled('movement_type_ids')) {
+            $ids = array_filter(array_map('intval', explode(',', $request->movement_type_ids)));
+            if (!empty($ids)) {
+                $query->whereIn('movement_type_id', $ids);
+            }
         }
 
-        // Filtrar por dirección
+        // Filtrar por dirección del tipo de movimiento
         if ($request->filled('direction')) {
             $query->whereHas('movementType', function ($q) use ($request) {
                 $q->where('direction', $request->direction);
@@ -465,6 +470,26 @@ class InventoryMovementController extends Controller
 
             // Recalcular totales
             $movement->recalculateTotals();
+
+            // Transferencias: descontar stock del origen de inmediato (el emisor pierde el stock
+            // al iniciar la transferencia; el receptor lo recibe al aprobar).
+            if ($movementType->direction === 'transfer') {
+                $movement->load('details.product:id,name');
+                foreach ($movement->details as $detail) {
+                    $this->decreaseStock(
+                        $detail,
+                        $movement->source_entity_id,
+                        $movement->source_entity_type,
+                        $movement
+                    );
+                }
+                // Marcar en metadata para que approve() sepa que el origen ya fue descontado
+                $movement->metadata = array_merge($movement->metadata ?? [], [
+                    'stock_deducted_at_creation' => true,
+                    'stock_deducted_at' => now()->toISOString(),
+                ]);
+                $movement->saveQuietly();
+            }
 
             DB::commit();
 
@@ -737,6 +762,25 @@ class InventoryMovementController extends Controller
         DB::beginTransaction();
 
         try {
+            // Si es una transferencia pendiente con stock ya descontado, revertir antes de borrar
+            if ($movement->status === 'pending') {
+                $movement->loadMissing(['movementType', 'details.product:id,name']);
+                if (
+                    $movement->movementType?->direction === 'transfer' &&
+                    data_get($movement->metadata, 'stock_deducted_at_creation', false)
+                ) {
+                    foreach ($movement->details as $detail) {
+                        $this->increaseStock(
+                            $detail,
+                            $movement->source_entity_id,
+                            $movement->source_entity_type,
+                            $movement,
+                            true // isReversal
+                        );
+                    }
+                }
+            }
+
             // Eliminar detalles
             $movement->details()->delete();
             
@@ -929,13 +973,17 @@ class InventoryMovementController extends Controller
                         $movement
                     );
                 } elseif ($movementType->direction === 'transfer') {
-                    // Transferencia: decrementar origen, incrementar destino
-                    $this->decreaseStock(
-                        $detail,
-                        $movement->source_entity_id,
-                        $movement->source_entity_type,
-                        $movement
-                    );
+                    // Transferencia: el origen se descontó al crear; solo incrementar destino.
+                    // Para transferencias antiguas (sin la marca) seguir descontando origen.
+                    $stockAlreadyDeducted = (bool) data_get($movement->metadata, 'stock_deducted_at_creation', false);
+                    if (!$stockAlreadyDeducted) {
+                        $this->decreaseStock(
+                            $detail,
+                            $movement->source_entity_id,
+                            $movement->source_entity_type,
+                            $movement
+                        );
+                    }
                     $this->increaseStock(
                         $detail,
                         $movement->destination_entity_id,
@@ -1157,6 +1205,26 @@ class InventoryMovementController extends Controller
         DB::beginTransaction();
 
         try {
+            // Si es una transferencia pendiente con stock ya descontado, revertir el descuento
+            if ($movement->status === 'pending') {
+                $movementType = $movement->movementType;
+                if (
+                    $movementType?->direction === 'transfer' &&
+                    data_get($movement->metadata, 'stock_deducted_at_creation', false)
+                ) {
+                    $movement->loadMissing('details.product:id,name');
+                    foreach ($movement->details as $detail) {
+                        $this->increaseStock(
+                            $detail,
+                            $movement->source_entity_id,
+                            $movement->source_entity_type,
+                            $movement,
+                            true // isReversal
+                        );
+                    }
+                }
+            }
+
             // Si estaba aprobado, revertir stock
             if ($movement->status === 'approved') {
                 $movementType = $movement->movementType;

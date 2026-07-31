@@ -968,3 +968,8 @@ Route::prefix('checador')->group(function () {
     Route::get('server-time', [App\Http\Controllers\Api\GrupoEsplendido\RH\TimeClockController::class, 'serverTime']);
     Route::get('today-checks', [App\Http\Controllers\Api\GrupoEsplendido\RH\TimeClockController::class, 'todayChecks']);
 });
+
+// =====================================================
+// MÓDULO CRM COMERCIAL
+// =====================================================
+require __DIR__.'/crm.php';

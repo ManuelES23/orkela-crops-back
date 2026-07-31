@@ -1,0 +1,109 @@
+name: CRM — CI
+
+on:
+  push:
+    branches:
+      - "feature/crm-*"
+  pull_request:
+    branches:
+      - develop
+      - main
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Backend: PHPUnit — solo tests del módulo CRM
+  # ──────────────────────────────────────────────────────────────
+  backend-tests:
+    name: PHP Tests (CRM)
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: sentinel_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo, pdo_mysql, mbstring, bcmath
+          coverage: none
+
+      - name: Install Composer dependencies
+        working-directory: sentinel-back
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy .env for testing
+        working-directory: sentinel-back
+        run: cp .env.example .env.testing
+
+      - name: Configure test env
+        working-directory: sentinel-back
+        run: |
+          echo "DB_CONNECTION=mysql" >> .env.testing
+          echo "DB_HOST=127.0.0.1" >> .env.testing
+          echo "DB_PORT=3306" >> .env.testing
+          echo "DB_DATABASE=sentinel_test" >> .env.testing
+          echo "DB_USERNAME=root" >> .env.testing
+          echo "DB_PASSWORD=root" >> .env.testing
+
+      - name: Generate application key
+        working-directory: sentinel-back
+        run: php artisan key:generate --env=testing
+
+      - name: Run migrations
+        working-directory: sentinel-back
+        run: php artisan migrate --env=testing --force
+
+      - name: Run CRM tests
+        working-directory: sentinel-back
+        run: php artisan test --filter=CRM --env=testing
+
+  # ──────────────────────────────────────────────────────────────
+  # Frontend: build check — solo si hay cambios en src/views/crm
+  # o src/hooks/crm
+  # ──────────────────────────────────────────────────────────────
+  frontend-build:
+    name: Frontend Build (CRM)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect CRM frontend changes
+        id: changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'sentinel-front/src/views/crm/' 'sentinel-front/src/hooks/crm/' | wc -l)
+          echo "count=$CHANGED" >> $GITHUB_OUTPUT
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.count > 0
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: sentinel-front/package-lock.json
+
+      - name: Install dependencies
+        if: steps.changes.outputs.count > 0
+        working-directory: sentinel-front
+        run: npm ci
+
+      - name: Build
+        if: steps.changes.outputs.count > 0
+        working-directory: sentinel-front
+        run: npm run build

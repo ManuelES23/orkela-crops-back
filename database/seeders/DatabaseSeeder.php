@@ -37,5 +37,10 @@ class DatabaseSeeder extends Seeder
             MovementTypeSeeder::class,
             PlagasEloteDulceSeeder::class,
         ]);
+
+        // Seeders del módulo CRM
+        $this->call([
+            CrmPermisosSeeder::class,
+        ]);
     }
 }
