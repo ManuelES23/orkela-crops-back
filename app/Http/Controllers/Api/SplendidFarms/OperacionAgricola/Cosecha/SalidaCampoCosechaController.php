@@ -95,7 +95,7 @@ class SalidaCampoCosechaController extends Controller
             'chofer' => 'nullable|string|max:150',
             'observaciones' => 'nullable|string',
             'es_batanga' => 'nullable|boolean',
-            'status' => 'nullable|in:registrada,en_transito,entregada,cancelada',
+            'status' => 'nullable|in:registrada,en_transito,pendiente_descarga,entregada,cancelada',
         ]);
 
         // Si tiene etapa, obtener variedad de la etapa automáticamente
@@ -228,7 +228,7 @@ class SalidaCampoCosechaController extends Controller
             'chofer' => 'nullable|string|max:150',
             'observaciones' => 'nullable|string',
             'es_batanga' => 'nullable|boolean',
-            'status' => 'nullable|in:registrada,en_transito,entregada,cancelada',
+            'status' => 'nullable|in:registrada,en_transito,pendiente_descarga,entregada,cancelada',
         ]);
 
         // Si tiene etapa, obtener variedad de la etapa automáticamente

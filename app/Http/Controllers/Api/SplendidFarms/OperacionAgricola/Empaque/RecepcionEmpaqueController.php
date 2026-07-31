@@ -350,7 +350,7 @@ class RecepcionEmpaqueController extends Controller
             'tipoCarga:id,nombre,categoria_caja,peso_estimado_kg',
             'destinoEntity:id,name,code',
         ])->where('eliminado', false)
-          ->whereIn('status', ['en_transito', 'registrada'])
+          ->whereIn('status', ['en_transito', 'registrada', 'pendiente_descarga'])
           ->whereNotIn('id', $receivedIds);
 
         if ($request->filled('temporada_id')) {
@@ -361,6 +361,58 @@ class RecepcionEmpaqueController extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $query->orderByDesc('fecha')->get()]);
+    }
+
+    /**
+     * Confirmar llegada de una salida de campo a la planta empacadora.
+     * Cambia el status de en_transito/registrada → pendiente_descarga.
+     */
+    public function confirmarLlegada(Request $request, SalidaCampoCosecha $salida): JsonResponse
+    {
+        if ($salida->eliminado) {
+            return response()->json(['status' => 'error', 'message' => 'Salida no encontrada'], 404);
+        }
+
+        if (!in_array($salida->status, ['en_transito', 'registrada'])) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Solo se pueden confirmar llegadas de salidas en tránsito o registradas',
+            ], 422);
+        }
+
+        // Verificar que ya no tenga una recepción vinculada
+        $tieneRecepcion = RecepcionEmpaque::where('salida_campo_id', $salida->id)->whereNull('deleted_at')->exists();
+        if ($tieneRecepcion) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Esta salida ya tiene una recepción registrada',
+            ], 422);
+        }
+
+        $salida->update(['status' => 'pendiente_descarga']);
+        $salida->load([
+            'productor:id,nombre,apellido',
+            'lote:id,nombre,numero_lote,zona_cultivo_id',
+            'lote.zonaCultivo:id,nombre',
+            'etapa:id,nombre,variedad_id',
+            'etapa.variedad:id,nombre',
+            'tipoCarga:id,nombre,categoria_caja,peso_estimado_kg',
+            'destinoEntity:id,name,code',
+        ]);
+
+        broadcast(new SalidaCampoUpdated(
+            'updated',
+            $salida->toArray(),
+            'splendidfarms',
+            'operacion-agricola',
+            'cosecha'
+        ))->toOthers();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Llegada confirmada. Salida marcada como pendiente de descarga.',
+            'data' => $salida,
+        ]);
     }
 
     private function generarFolio(array $data): string

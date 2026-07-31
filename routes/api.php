@@ -582,6 +582,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
                 // Recepciones
                 Route::get('recepciones/salidas-disponibles', [App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\Empaque\RecepcionEmpaqueController::class, 'salidasDisponibles']);
+                Route::post('recepciones/salidas/{salida}/confirmar-llegada', [App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\Empaque\RecepcionEmpaqueController::class, 'confirmarLlegada']);
                 Route::apiResource('recepciones', App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\Empaque\RecepcionEmpaqueController::class)
                     ->parameters(['recepciones' => 'recepcion']);
 
