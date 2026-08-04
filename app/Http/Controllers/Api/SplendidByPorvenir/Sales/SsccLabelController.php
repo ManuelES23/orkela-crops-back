@@ -377,6 +377,41 @@ class SsccLabelController extends Controller
         ]);
     }
 
+    public function destroyByManifest(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'lote' => 'nullable|string|max:120',
+        ]);
+
+        $enterpriseId = $this->resolveEnterpriseId($request);
+        $lote = trim((string) ($validated['lote'] ?? ''));
+
+        $query = SalesSsccLabel::query()
+            ->where('enterprise_id', $enterpriseId);
+
+        if ($lote === '') {
+            $query->where(function ($builder) {
+                $builder
+                    ->whereNull('lote')
+                    ->orWhereRaw('TRIM(lote) = ?', ['']);
+            });
+        } else {
+            $query->where('lote', $lote);
+        }
+
+        $deleted = $query->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => $deleted > 0
+                ? 'Etiquetas del manifiesto eliminadas correctamente.'
+                : 'No se encontraron etiquetas para el manifiesto indicado.',
+            'data' => [
+                'deleted' => $deleted,
+            ],
+        ]);
+    }
+
     private function resolveEnterpriseId(Request $request): int
     {
         $slug = strtolower(trim((string) $request->header('X-Enterprise-Slug', 'splendidbyporvenir')));
@@ -470,7 +505,7 @@ class SsccLabelController extends Controller
                 ]);
             }
 
-            $exists = SalesSsccLabel::withTrashed()
+            $exists = SalesSsccLabel::query()
                 ->where('enterprise_id', $enterpriseId)
                 ->whereRaw('LOWER(TRIM(pallet_tag)) = ?', [mb_strtolower($palletTag)])
                 ->exists();
@@ -510,7 +545,7 @@ class SsccLabelController extends Controller
                 ]);
             }
 
-            $exists = SalesSsccLabel::withTrashed()
+            $exists = SalesSsccLabel::query()
                 ->where('enterprise_id', $enterpriseId)
                 ->whereRaw('LOWER(TRIM(pallet_tag)) = ?', [mb_strtolower($palletTag)])
                 ->exists();
