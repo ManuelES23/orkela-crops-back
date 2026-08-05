@@ -580,6 +580,9 @@ Route::middleware('auth:sanctum')->group(function () {
             // =====================================================
             Route::prefix('empaque')->group(function () {
 
+                // Dashboard ejecutivo KPIs
+                Route::get('dashboard/kpis', [App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\Empaque\DashboardEmpaqueController::class, 'kpis']);
+
                 // Recepciones
                 Route::get('recepciones/salidas-disponibles', [App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\Empaque\RecepcionEmpaqueController::class, 'salidasDisponibles']);
                 Route::post('recepciones/salidas/{salida}/confirmar-llegada', [App\Http\Controllers\Api\SplendidFarms\OperacionAgricola\Empaque\RecepcionEmpaqueController::class, 'confirmarLlegada']);
@@ -848,6 +851,7 @@ Route::middleware('auth:sanctum')->group(function () {
                     Route::post('importar-excel', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'importExcel']);
                     Route::post('crear-manual', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'createManual']);
                     Route::post('marcar-impresas', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'markPrinted']);
+                    Route::post('eliminar-manifiesto', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'destroyByManifest']);
                     Route::delete('{ssccLabel}', [App\Http\Controllers\Api\SplendidByPorvenir\Sales\SsccLabelController::class, 'destroy']);
                 });
             });
