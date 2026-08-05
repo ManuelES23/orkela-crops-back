@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\EmbarqueEmpaque;
 use App\Models\PreEmbarqueEmpaque;
 use App\Models\ProduccionEmpaque;
-use App\Models\ProduccionEmpaqueDetalle;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,30 +13,19 @@ use Illuminate\Support\Facades\DB;
 class EmbarqueEmpaqueController extends Controller
 {
     private array $eagerLoad = [
-        'temporada:id,cultivo_id,nombre',
-        'temporada.cultivo:id,nombre',
         'entity:id,name,code',
-        'detalles.produccion:id,proceso_id,numero_pallet,is_cola,is_mixto,variedad_id,marca,presentacion,calibre,tipo_empaque,recipe_id,total_cajas,peso_bascula_kg,fecha_produccion,lote_producto_terminado,clasificacion,observaciones',
-        'detalles.produccion.temporada:id,cultivo_id,nombre',
-        'detalles.produccion.temporada.cultivo:id,nombre',
-        'detalles.produccion.proceso:id,folio_proceso,recepcion_id,lote_id,fecha_proceso,fecha_entrada',
-        'detalles.produccion.proceso.temporada:id,cultivo_id,nombre',
-        'detalles.produccion.proceso.temporada.cultivo:id,nombre',
-        'detalles.produccion.proceso.productor:id,nombre,apellido',
-        'detalles.produccion.proceso.lote:id,nombre,codigo,numero_lote',
-        'detalles.produccion.proceso.recepcion:id,folio_recepcion,variedad_id,lote_producto_terminado',
-        'detalles.produccion.proceso.recepcion.variedad:id,nombre',
+        'detalles.produccion:id,proceso_id,numero_pallet,is_cola,variedad_id,marca,presentacion,calibre,tipo_empaque,recipe_id,total_cajas,peso_bascula_kg,fecha_produccion,lote_producto_terminado',
+        'detalles.produccion.proceso:id,folio_proceso,recepcion_id,lote_id',
+        'detalles.produccion.proceso.recepcion:id,lote_producto_terminado',
         'detalles.produccion.variedad:id,nombre',
         'detalles.produccion.recipe:id,name,output_product_id',
         'detalles.produccion.recipe.outputProduct:id,name,brand_id',
         'detalles.produccion.recipe.outputProduct.brand:id,name,code',
         'detalles.produccion.detalles',
-        'detalles.produccion.detalles.recipe:id,name,code,output_product_id',
-        'detalles.produccion.detalles.proceso:id,folio_proceso,etapa_id,recepcion_id,productor_id,lote_id,fecha_proceso,fecha_entrada',
-        'detalles.produccion.detalles.proceso.recepcion:id,folio_recepcion,variedad_id,lote_producto_terminado',
-        'detalles.produccion.detalles.proceso.recepcion.variedad:id,nombre',
+        'detalles.produccion.detalles.proceso:id,folio_proceso,etapa_id,recepcion_id,productor_id,lote_id',
+        'detalles.produccion.detalles.proceso.recepcion:id,lote_producto_terminado',
         'detalles.produccion.detalles.proceso.productor:id,nombre,apellido',
-        'detalles.produccion.detalles.proceso.lote:id,nombre,codigo,numero_lote',
+        'detalles.produccion.detalles.proceso.lote:id,nombre,numero_lote',
         'detalles.produccion.detalles.proceso.etapa:id,nombre,variedad_id',
         'detalles.produccion.detalles.proceso.etapa.variedad:id,nombre',
         'creador:id,name',
@@ -71,7 +59,6 @@ class EmbarqueEmpaqueController extends Controller
         }
 
         $embarques = $query->orderByDesc('fecha_embarque')->orderByDesc('id')->get();
-        $embarques->each(fn (EmbarqueEmpaque $embarque) => $this->hydrateEmbarqueLots($embarque));
 
         return response()->json(['success' => true, 'data' => $embarques]);
     }
@@ -83,10 +70,8 @@ class EmbarqueEmpaqueController extends Controller
     {
         $query = ProduccionEmpaque::with([
             'proceso.productor:id,nombre,apellido',
-            'proceso.lote:id,nombre,codigo,numero_lote',
+            'proceso.lote:id,nombre,numero_lote',
             'proceso.etapa.variedad:id,nombre',
-            'proceso.recepcion:id,variedad_id,lote_producto_terminado',
-            'proceso.recepcion.variedad:id,nombre',
             'proceso.recepcion.salidaCampo.variedad:id,nombre',
             'variedad:id,nombre',
         ])
@@ -179,28 +164,20 @@ class EmbarqueEmpaqueController extends Controller
         /** @var \Illuminate\Database\Eloquent\Collection<int, \App\Models\ProduccionEmpaque> $pallets */
         $pallets = ProduccionEmpaque::with([
             'proceso.productor:id,nombre,apellido',
-            'proceso.lote:id,nombre,codigo,numero_lote',
+            'proceso.lote:id,nombre,numero_lote',
             'proceso.etapa.variedad:id,nombre',
             'proceso.recepcion.salidaCampo.variedad:id,nombre',
             'detalles.proceso.recepcion:id,lote_producto_terminado',
             'variedad:id,nombre',
         ])->whereIn('id', $palletIds)->get();
 
-        $palletMetrics = $pallets->mapWithKeys(function (ProduccionEmpaque $pallet) {
-            return [$pallet->id => $this->resolvePalletSnapshotTotals($pallet)];
-        });
-
         // Calculate totals from actual pallet data
         $validated['total_pallets'] = $pallets->count();
-        $validated['total_cajas'] = $pallets->sum(function (ProduccionEmpaque $pallet) use ($palletMetrics) {
-            return (int) ($palletMetrics[$pallet->id]['total_cajas'] ?? 0);
-        });
-        $validated['peso_total_kg'] = $pallets->sum(function (ProduccionEmpaque $pallet) use ($palletMetrics) {
-            return (float) ($palletMetrics[$pallet->id]['peso_neto_kg'] ?? 0);
-        });
+        $validated['total_cajas'] = $pallets->sum('total_cajas');
+        $validated['peso_total_kg'] = $pallets->sum('peso_neto_kg');
         $validated['peso_bascula_total_kg'] = $pallets->sum('peso_bascula_kg');
 
-        $embarque = DB::transaction(function () use ($validated, $pallets, $palletMetrics, $posiciones) {
+        $embarque = DB::transaction(function () use ($validated, $pallets) {
             // Generar folio dentro de la transacción con lock para evitar duplicados por concurrencia
             $validated['folio_embarque'] = $this->generarFolio($validated);
 
@@ -215,7 +192,6 @@ class EmbarqueEmpaqueController extends Controller
                     ?? $proceso?->etapa?->variedad?->nombre
                     ?? $proceso?->recepcion?->salidaCampo?->variedad?->nombre;
                 $loteEmpaque = $this->resolverLoteEmpaque($pallet);
-                $metric = $palletMetrics[$pallet->id] ?? ['total_cajas' => 0, 'peso_neto_kg' => 0.0];
 
                 $embarque->detalles()->create([
                     'produccion_id' => $pallet->id,
@@ -231,27 +207,21 @@ class EmbarqueEmpaqueController extends Controller
                     'etiqueta' => $pallet->etiqueta,
                     'calibre' => $pallet->calibre,
                     'fecha_produccion' => $pallet->fecha_produccion,
-                    'cajas' => (int) ($metric['total_cajas'] ?? 0),
-                    'peso_kg' => (float) ($metric['peso_neto_kg'] ?? 0),
+                    'cajas' => $pallet->total_cajas,
+                    'peso_kg' => $pallet->peso_neto_kg,
                     'peso_bascula_kg' => $pallet->peso_bascula_kg,
                     'is_cola' => $pallet->is_cola,
                     'posicion_carga' => $posiciones[$pallet->id]['posicion_carga'] ?? null,
                 ]);
 
                 // Mark production as shipped and out of cuarto frío
-                $pallet->update([
-                    'status' => 'embarcado',
-                    'en_cuarto_frio' => false,
-                    'total_cajas' => (int) ($metric['total_cajas'] ?? 0),
-                    'peso_neto_kg' => (float) ($metric['peso_neto_kg'] ?? 0),
-                ]);
+                $pallet->update(['status' => 'embarcado', 'en_cuarto_frio' => false]);
             }
 
             return $embarque;
         });
 
         $embarque->load($this->eagerLoad);
-        $this->hydrateEmbarqueLots($embarque);
 
         return response()->json([
             'success' => true,
@@ -263,7 +233,6 @@ class EmbarqueEmpaqueController extends Controller
     public function show(EmbarqueEmpaque $embarque): JsonResponse
     {
         $embarque->load($this->eagerLoad);
-        $this->hydrateEmbarqueLots($embarque);
 
         return response()->json(['success' => true, 'data' => $embarque]);
     }
@@ -317,7 +286,6 @@ class EmbarqueEmpaqueController extends Controller
 
         $embarque->update($validated);
         $embarque->load($this->eagerLoad);
-        $this->hydrateEmbarqueLots($embarque);
 
         return response()->json([
             'success' => true,
@@ -427,110 +395,12 @@ class EmbarqueEmpaqueController extends Controller
             return $subLotes->implode(',');
         }
 
-        $codigoLote = $pallet->proceso?->lote?->codigo;
-        if ($codigoLote !== null && $codigoLote !== '') {
-            return (string) $codigoLote;
-        }
-
         $numeroLote = $pallet->proceso?->lote?->numero_lote;
         if ($numeroLote !== null && $numeroLote !== '') {
             return (string) $numeroLote;
         }
 
         return $pallet->proceso?->lote?->nombre;
-    }
-
-    private function resolvePalletSnapshotTotals(ProduccionEmpaque $pallet): array
-    {
-        $detalles = $pallet->relationLoaded('detalles')
-            ? $pallet->detalles
-            : $pallet->detalles()->get();
-
-        if ($detalles->isEmpty()) {
-            return [
-                'total_cajas' => (int) ($pallet->total_cajas ?? 0),
-                'peso_neto_kg' => round((float) ($pallet->peso_neto_kg ?? 0), 2),
-            ];
-        }
-
-        return [
-            'total_cajas' => (int) $detalles->sum(fn (ProduccionEmpaqueDetalle $detalle) => (int) ($detalle->total_cajas ?? 0)),
-            'peso_neto_kg' => round(
-                (float) $detalles->sum(fn (ProduccionEmpaqueDetalle $detalle) => (float) ($detalle->peso_neto_kg ?? 0)),
-                2,
-            ),
-        ];
-    }
-
-    private function hydrateEmbarqueLots(EmbarqueEmpaque $embarque): void
-    {
-        if (! $embarque->relationLoaded('detalles') || $embarque->detalles->isEmpty()) {
-            return;
-        }
-
-        $embarque->detalles->each(function ($detalle) {
-            $produccion = $detalle->produccion;
-            if (! $produccion instanceof ProduccionEmpaque) {
-                return;
-            }
-
-            $this->hydrateMixedProduccionDetailLots($produccion);
-        });
-    }
-
-    private function hydrateMixedProduccionDetailLots(ProduccionEmpaque $produccion): void
-    {
-        if (! $produccion->is_mixto || ! $produccion->relationLoaded('detalles') || $produccion->detalles->isEmpty()) {
-            return;
-        }
-
-        $sourceColaIds = $produccion->detalles
-            ->map(fn (ProduccionEmpaqueDetalle $detalle) => $this->extractMixSourceColaId($detalle->observaciones))
-            ->filter()
-            ->unique()
-            ->values();
-
-        if ($sourceColaIds->isEmpty()) {
-            return;
-        }
-
-        $lotesByColaId = ProduccionEmpaque::withTrashed()
-            ->whereIn('id', $sourceColaIds)
-            ->get(['id', 'lote_producto_terminado'])
-            ->mapWithKeys(fn (ProduccionEmpaque $cola) => [
-                (int) $cola->id => trim((string) ($cola->lote_producto_terminado ?? '')),
-            ]);
-
-        $produccion->detalles->each(function (ProduccionEmpaqueDetalle $detalle) use ($lotesByColaId) {
-            if (filled($detalle->lote_producto_terminado)) {
-                return;
-            }
-
-            $sourceColaId = $this->extractMixSourceColaId($detalle->observaciones);
-            if (! $sourceColaId) {
-                return;
-            }
-
-            $lote = $lotesByColaId->get($sourceColaId, '');
-            if (filled($lote)) {
-                $detalle->setAttribute('lote_producto_terminado', $lote);
-            }
-        });
-    }
-
-    private function extractMixSourceColaId(?string $observaciones): ?int
-    {
-        if (! $observaciones) {
-            return null;
-        }
-
-        if (! preg_match('/MIXSRC:(\d+)/', $observaciones, $matches)) {
-            return null;
-        }
-
-        $id = (int) ($matches[1] ?? 0);
-
-        return $id > 0 ? $id : null;
     }
 
     private function generarFolioPreEmbarque(int $entityId): string
