@@ -22,6 +22,7 @@ class ProduccionEmpaqueDetalle extends Model
         'presentacion',
         'etiqueta',
         'calibre',
+        'lote_producto_terminado',
         'categoria',
         'fecha_produccion',
         'total_cajas',
