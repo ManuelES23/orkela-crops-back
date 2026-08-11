@@ -85,6 +85,12 @@ Route::middleware('auth:sanctum')->prefix('crm')->group(function () {
     Route::apiResource('actividades', App\Http\Controllers\Api\CRM\ActividadController::class)
         ->parameters(['actividades' => 'actividad']);
 
+    // Historial de actividades de UNA entidad puntual (paginado a 15, desc).
+    // entidad_type: alias corto (prospecto|cliente|oportunidad|empresa_externa).
+    Route::get('{entidad_type}/{entidad_id}/historial', [
+        App\Http\Controllers\Api\CRM\ActividadController::class, 'historial'
+    ])->whereNumber('entidad_id');
+
     // -------------------------------------------------
     // OPORTUNIDADES
     // CRUD + cambio de etapa + sync de productos

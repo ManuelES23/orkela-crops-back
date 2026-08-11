@@ -58,16 +58,55 @@ class ActividadController extends CrmBaseController
             'vendedor_id'  => 'nullable|integer',
         ]);
 
-        $query = CrmActividad::query()
+        $query = $this->construirQuery($empresaId, $request->only([
+            'entidad_tipo', 'entidad_id', 'tipo', 'vendedor_id', 'search',
+        ]));
+
+        $perPage = (int) $request->query('per_page', 50);
+
+        return $this->respuestaPaginada($query->paginate($perPage));
+    }
+
+    /**
+     * GET /crm/{entidad_type}/{entidad_id}/historial
+     * Atajo de solo lectura sobre index(): historial de actividades de UNA
+     * entidad puntual (prospecto|cliente|oportunidad|empresa_externa),
+     * ordenado por fecha descendente y paginado a 15 registros fijos.
+     * Incluye también las notas automáticas del sistema (fuente = 'sistema'),
+     * como las de asignación de vendedor, porque viven en la misma tabla.
+     */
+    public function historial(Request $request, string $entidad_type, int $entidad_id): JsonResponse
+    {
+        if (! array_key_exists($entidad_type, self::TIPOS)) {
+            return $this->jsonError('Tipo de entidad no válido.', 422);
+        }
+
+        $empresaId = $this->getEmpresaId($request);
+
+        $query = $this->construirQuery($empresaId, [
+            'entidad_tipo' => $entidad_type,
+            'entidad_id'   => $entidad_id,
+        ]);
+
+        return $this->respuestaPaginada($query->paginate(15));
+    }
+
+    /**
+     * Query base compartida por index() e historial(): mismos filtros,
+     * mismo orden. Evita mantener dos veces la misma cadena de when().
+     */
+    private function construirQuery(?int $empresaId, array $filtros)
+    {
+        return CrmActividad::query()
             ->with(self::RELACIONES)
             ->where('empresa_id', $empresaId)
-            ->when($request->entidad_tipo, function ($q, $tipo) {
+            ->when($filtros['entidad_tipo'] ?? null, function ($q, $tipo) {
                 $q->where('entidad_type', self::TIPOS[$tipo]);
             })
-            ->when($request->entidad_id, fn ($q, $id) => $q->where('entidad_id', $id))
-            ->when($request->tipo, fn ($q, $tipo) => $q->where('tipo', $tipo))
-            ->when($request->vendedor_id, fn ($q, $id) => $q->where('vendedor_id', $id))
-            ->when($request->search, function ($q, $search) {
+            ->when($filtros['entidad_id'] ?? null, fn ($q, $id) => $q->where('entidad_id', $id))
+            ->when($filtros['tipo'] ?? null, fn ($q, $tipo) => $q->where('tipo', $tipo))
+            ->when($filtros['vendedor_id'] ?? null, fn ($q, $id) => $q->where('vendedor_id', $id))
+            ->when($filtros['search'] ?? null, function ($q, $search) {
                 $q->where(function ($sub) use ($search) {
                     $sub->where('descripcion', 'like', "%{$search}%")
                         ->orWhere('resultado', 'like', "%{$search}%");
@@ -75,12 +114,16 @@ class ActividadController extends CrmBaseController
             })
             ->orderByDesc('fecha_actividad')
             ->orderByDesc('id');
+    }
 
-        $perPage = (int) $request->query('per_page', 50);
-        $paginated = $query->paginate($perPage);
-
+    /**
+     * Serializa un paginador de CrmActividad al formato estándar
+     * { success, message, data, meta }, agregando el alias entidad_tipo.
+     */
+    private function respuestaPaginada($paginated): JsonResponse
+    {
         $items = collect($paginated->items())->map(function ($a) {
-            $a->entidad_tipo = array_search($a->entidad_type, self::TIPOS, true) ?: null;
+            $a->entidad_tipo = $this->aliasEntidadTipo($a->entidad_type);
             return $a;
         });
 
@@ -104,7 +147,7 @@ class ActividadController extends CrmBaseController
     {
         $this->verificarEmpresa($request, $actividad);
         $actividad->load(self::RELACIONES);
-        $actividad->entidad_tipo = array_search($actividad->entidad_type, self::TIPOS, true) ?: null;
+        $actividad->entidad_tipo = $this->aliasEntidadTipo($actividad->entidad_type);
 
         return $this->jsonSuccess($actividad);
     }
@@ -172,7 +215,7 @@ class ActividadController extends CrmBaseController
 
         $actividad->update($validated);
         $actividad->load(self::RELACIONES);
-        $actividad->entidad_tipo = array_search($actividad->entidad_type, self::TIPOS, true) ?: null;
+        $actividad->entidad_tipo = $this->aliasEntidadTipo($actividad->entidad_type);
 
         broadcast(new ActividadUpdated('updated', $actividad->toArray()));
 
@@ -192,6 +235,15 @@ class ActividadController extends CrmBaseController
         broadcast(new ActividadUpdated('deleted', $data));
 
         return $this->jsonSuccess(null, 'Actividad eliminada correctamente');
+    }
+
+    /**
+     * Traduce el FQCN guardado en entidad_type de vuelta al alias corto
+     * ('prospecto', 'cliente', ...) que consume el frontend.
+     */
+    private function aliasEntidadTipo(?string $entidadType): ?string
+    {
+        return array_search($entidadType, self::TIPOS, true) ?: null;
     }
 
     /**

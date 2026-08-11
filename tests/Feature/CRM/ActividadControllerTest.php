@@ -89,4 +89,73 @@ class ActividadControllerTest extends TestCase
 
         $response->assertStatus(404);
     }
+
+    public function test_historial_devuelve_actividades_de_la_entidad_ordenadas_desc(): void
+    {
+        $vieja = CrmActividad::create([
+            'empresa_id' => $this->enterprise->id, 'tipo' => 'nota',
+            'entidad_type' => CrmCliente::class, 'entidad_id' => $this->cliente->id,
+            'descripcion' => 'Nota vieja', 'fecha_actividad' => now()->subDays(3),
+        ]);
+        $reciente = CrmActividad::create([
+            'empresa_id' => $this->enterprise->id, 'tipo' => 'llamada',
+            'entidad_type' => CrmCliente::class, 'entidad_id' => $this->cliente->id,
+            'descripcion' => 'Llamada reciente', 'fecha_actividad' => now(),
+        ]);
+
+        $response = $this->withHeaders($this->crmHeaders())
+            ->getJson("/api/crm/cliente/{$this->cliente->id}/historial");
+
+        $response->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.id', $reciente->id)
+            ->assertJsonPath('data.1.id', $vieja->id)
+            ->assertJsonPath('meta.per_page', 15);
+    }
+
+    public function test_historial_incluye_las_notas_automaticas_de_asignacion_de_vendedor(): void
+    {
+        CrmActividad::create([
+            'empresa_id' => $this->enterprise->id, 'tipo' => 'nota',
+            'entidad_type' => CrmCliente::class, 'entidad_id' => $this->cliente->id,
+            'vendedor_id' => $this->vendedor->id,
+            'descripcion' => "Vendedor asignado: {$this->vendedor->nombre}",
+            'fecha_actividad' => now(), 'fuente' => 'sistema',
+        ]);
+
+        $response = $this->withHeaders($this->crmHeaders())
+            ->getJson("/api/crm/cliente/{$this->cliente->id}/historial");
+
+        $response->assertOk()
+            ->assertJsonPath('data.0.fuente', 'sistema')
+            ->assertJsonPath('data.0.descripcion', "Vendedor asignado: {$this->vendedor->nombre}");
+    }
+
+    public function test_historial_rechaza_un_tipo_de_entidad_invalido(): void
+    {
+        $response = $this->withHeaders($this->crmHeaders())
+            ->getJson("/api/crm/factura/{$this->cliente->id}/historial");
+
+        $response->assertStatus(422);
+    }
+
+    public function test_historial_no_mezcla_actividades_de_otra_empresa(): void
+    {
+        $otraEmpresa = $this->crearOtraEmpresa();
+        CrmActividad::create([
+            'empresa_id' => $otraEmpresa->id, 'tipo' => 'nota',
+            'entidad_type' => CrmCliente::class, 'entidad_id' => $this->cliente->id,
+            'descripcion' => 'Ajena', 'fecha_actividad' => now(),
+        ]);
+        CrmActividad::create([
+            'empresa_id' => $this->enterprise->id, 'tipo' => 'nota',
+            'entidad_type' => CrmCliente::class, 'entidad_id' => $this->cliente->id,
+            'descripcion' => 'Propia', 'fecha_actividad' => now(),
+        ]);
+
+        $response = $this->withHeaders($this->crmHeaders())
+            ->getJson("/api/crm/cliente/{$this->cliente->id}/historial");
+
+        $response->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.descripcion', 'Propia');
+    }
 }
