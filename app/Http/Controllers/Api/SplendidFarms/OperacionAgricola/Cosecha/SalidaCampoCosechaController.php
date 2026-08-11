@@ -11,8 +11,10 @@ use App\Models\ConvenioCompra;
 use App\Models\Lote;
 use App\Models\Etapa;
 use App\Models\TipoCarga;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SalidaCampoCosechaController extends Controller
 {
@@ -141,10 +143,28 @@ class SalidaCampoCosechaController extends Controller
             $validated['peso_neto_kg'] = $validated['cantidad'] * $tipoCarga->peso_estimado_kg;
         }
 
-        // Generar folio de salida
-        $validated['folio_salida'] = $this->generarFolio($validated);
+        // Generar folio de salida (con reintento ante colisión por inserciones casi simultáneas)
+        $salida = null;
+        $maxAttempts = 5;
 
-        $salida = SalidaCampoCosecha::create($validated);
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $salida = DB::transaction(function () use ($validated) {
+                    $payload = $validated;
+                    $payload['folio_salida'] = $this->generarFolio($payload);
+
+                    return SalidaCampoCosecha::create($payload);
+                });
+
+                break;
+            } catch (QueryException $e) {
+                if ($this->isFolioDuplicateError($e) && $attempt < $maxAttempts) {
+                    continue;
+                }
+                throw $e;
+            }
+        }
+
         $salida->load($this->eagerLoad);
 
         broadcast(new SalidaCampoUpdated(
@@ -339,24 +359,36 @@ class SalidaCampoCosechaController extends Controller
         $etapa = isset($data['etapa_id']) ? Etapa::find($data['etapa_id']) : null;
         $etapaOrden = str_pad($etapa?->orden ?? 0, 2, '0', STR_PAD_LEFT);
 
-        // Consecutivo por combinación dentro de la temporada
-        $consecutivo = SalidaCampoCosecha::where('temporada_id', $data['temporada_id'])
+        $prefix = "{$productorId}-{$zonaId}-{$loteNum}-{$etapaOrden}";
+
+        // Consecutivo por combinación dentro de la temporada: se basa en el último
+        // folio realmente usado (no en un COUNT de filas), porque un COUNT asume que
+        // los folios existentes son contiguos 1..N. Si algún registro se eliminó
+        // físicamente en algún momento (dejando un hueco en la numeración, p.ej.
+        // ...0016, ...0018, ...0019 sin ...0017), COUNT()+1 puede volver a calcular
+        // un número que ya está tomado y chocar siempre contra el mismo folio.
+        $lastFolio = SalidaCampoCosecha::where('temporada_id', $data['temporada_id'])
             ->where('productor_id', $data['productor_id'])
             ->where('zona_cultivo_id', $data['zona_cultivo_id'] ?? null)
             ->where('lote_id', $data['lote_id'])
             ->where('etapa_id', $data['etapa_id'] ?? null)
-            ->max('id');
+            ->where('folio_salida', 'like', "{$prefix}%")
+            ->orderByDesc('folio_salida')
+            ->value('folio_salida');
 
-        // Contar registros existentes (incluyendo eliminados) + 1
-        $count = SalidaCampoCosecha::where('temporada_id', $data['temporada_id'])
-            ->where('productor_id', $data['productor_id'])
-            ->where('zona_cultivo_id', $data['zona_cultivo_id'] ?? null)
-            ->where('lote_id', $data['lote_id'])
-            ->where('etapa_id', $data['etapa_id'] ?? null)
-            ->count() + 1;
+        $nextNum = 1;
+        if ($lastFolio) {
+            $nextNum = (int) substr($lastFolio, -2) + 1;
+        }
 
-        $consecutivoStr = str_pad($count, 2, '0', STR_PAD_LEFT);
+        $consecutivoStr = str_pad($nextNum, 2, '0', STR_PAD_LEFT);
 
-        return "{$productorId}-{$zonaId}-{$loteNum}-{$etapaOrden}{$consecutivoStr}";
+        return "{$prefix}{$consecutivoStr}";
+    }
+
+    private function isFolioDuplicateError(QueryException $e): bool
+    {
+        return $e->getCode() === '23000'
+            && str_contains($e->getMessage(), 'salidas_campo_cosecha_folio_salida_unique');
     }
 }
