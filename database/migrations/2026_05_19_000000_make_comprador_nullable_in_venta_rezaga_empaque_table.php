@@ -7,7 +7,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement('ALTER TABLE venta_rezaga_empaque MODIFY comprador VARCHAR(200) NULL');
+        // Sintaxis específica de MySQL; se omite en SQLite (usado en tests).
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE venta_rezaga_empaque MODIFY comprador VARCHAR(200) NULL');
+        }
     }
 
     public function down(): void

@@ -11,7 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement('ALTER TABLE sf_employee_contracts MODIFY template_body LONGTEXT NULL');
+        // Sintaxis específica de MySQL; en SQLite (usado en tests) las
+        // columnas TEXT ya son nullable por defecto, no hace falta MODIFY.
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE sf_employee_contracts MODIFY template_body LONGTEXT NULL');
+        }
     }
 
     /**

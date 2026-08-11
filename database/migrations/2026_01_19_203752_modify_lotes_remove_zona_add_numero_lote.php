@@ -12,19 +12,27 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // El índice compuesto original sobre zona_cultivo_id debe quitarse
+        // antes de la FK y la columna: MySQL lo hace implícito al hacer
+        // dropColumn, pero SQLite (usado en tests) reconstruye la tabla
+        // preservando índices y falla con "no such column" si sigue ahí.
+        Schema::table('lotes', function (Blueprint $table) {
+            $table->dropIndex(['zona_cultivo_id', 'is_active']);
+        });
+
         Schema::table('lotes', function (Blueprint $table) {
             // Agregar nuevo campo numero_lote (ID incremental por cultivo)
             $table->unsignedInteger('numero_lote')->default(0)->after('id')
                 ->comment('Número secuencial del lote (autoincremental)');
-            
+
             // Agregar campo cultivo_id como referencia (nullable al principio)
             $table->foreignId('cultivo_id')->nullable()->after('numero_lote')
                 ->constrained('cultivos')->onDelete('set null');
-            
+
             // Quitar la constraint de zona_cultivo_id
             $table->dropForeign(['zona_cultivo_id']);
             $table->dropColumn('zona_cultivo_id');
-            
+
             // Actualizar índice
             $table->index(['cultivo_id', 'numero_lote', 'is_active']);
         });

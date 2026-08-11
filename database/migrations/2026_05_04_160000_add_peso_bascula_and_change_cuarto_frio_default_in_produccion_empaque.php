@@ -15,7 +15,10 @@ return new class extends Migration
             }
         });
 
-        DB::statement("ALTER TABLE produccion_empaque ALTER en_cuarto_frio SET DEFAULT 0");
+        // Sintaxis específica de MySQL; se omite en SQLite (usado en tests).
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE produccion_empaque ALTER en_cuarto_frio SET DEFAULT 0");
+        }
     }
 
     public function down(): void

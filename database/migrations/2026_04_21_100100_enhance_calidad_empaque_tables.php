@@ -22,8 +22,12 @@ return new class extends Migration
             $table->integer('piezas_por_caja')->nullable()->after('porcentaje_cumple');
         });
 
-        // Amplia enum tipo_evaluacion para soportar 'empacadores' (mantiene valores previos).
-        DB::statement("ALTER TABLE calidad_empaque MODIFY COLUMN tipo_evaluacion ENUM('recepcion','empacado','empacadores') NOT NULL");
+        // Amplia enum tipo_evaluacion para soportar 'empacadores' (mantiene
+        // valores previos). Sintaxis específica de MySQL; se omite en
+        // SQLite (usado en tests).
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE calidad_empaque MODIFY COLUMN tipo_evaluacion ENUM('recepcion','empacado','empacadores') NOT NULL");
+        }
 
         // Muestras dinamicas por evaluacion (una fila por folio/empacador).
         Schema::create('calidad_empaque_muestras', function (Blueprint $table) {

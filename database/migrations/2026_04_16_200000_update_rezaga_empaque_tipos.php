@@ -14,8 +14,12 @@ return new class extends Migration
             $table->string('subtipo_rezaga', 30)->nullable()->after('tipo_rezaga');
         });
 
-        // Change tipo_rezaga enum values
-        DB::statement("ALTER TABLE rezaga_empaque MODIFY COLUMN tipo_rezaga ENUM('produccion','cuarto_frio','descarte','merma','segunda','basura') DEFAULT 'produccion'");
+        // Change tipo_rezaga enum values (sintaxis específica de MySQL; en
+        // SQLite -usado en tests- el enum ya se modela como CHECK y no
+        // soporta MODIFY COLUMN, así que se omite ahí).
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE rezaga_empaque MODIFY COLUMN tipo_rezaga ENUM('produccion','cuarto_frio','descarte','merma','segunda','basura') DEFAULT 'produccion'");
+        }
 
         // Add index
         Schema::table('rezaga_empaque', function (Blueprint $table) {

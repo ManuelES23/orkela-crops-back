@@ -18,13 +18,24 @@
         </include>
     </source>
     <php>
-        <env name="APP_ENV" value="testing"/>
+        <!--
+            force="true" es obligatorio en DB_CONNECTION/DB_DATABASE: sin él,
+            PHPUnit solo aplica el env si la variable NO está ya definida en
+            el proceso. Si algo hace que el proceso padre (ej. artisan test
+            con la opcion env=testing, que resuelve .env porque no existe
+            .env.testing) ya haya puesto DB_CONNECTION=mysql en el entorno,
+            PHPUnit heredaría ese valor real en vez de sqlite. Así se
+            perdieron datos reales de desarrollo una vez (agosto 2026); no
+            quitar force="true". Ver también el guard duro en
+            tests/TestCase.php (segunda capa).
+        -->
+        <env name="APP_ENV" value="testing" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_CONNECTION" value="sqlite" force="true"/>
+        <env name="DB_DATABASE" value=":memory:" force="true"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

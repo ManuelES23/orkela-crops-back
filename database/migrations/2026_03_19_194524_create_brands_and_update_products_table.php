@@ -18,6 +18,14 @@ return new class extends Migration
             $table->softDeletes();
         });
 
+        // El índice sobre plu_number debe quitarse antes de la columna:
+        // MySQL lo hace implícito al hacer dropColumn, pero SQLite (usado en
+        // tests) reconstruye la tabla preservando índices y falla con
+        // "no such column: plu_number" si sigue ahí.
+        Schema::table('products', function (Blueprint $table) {
+            $table->dropIndex(['plu_number']);
+        });
+
         // Actualizar productos: quitar brand (string) y plu_number, agregar brand_id FK
         Schema::table('products', function (Blueprint $table) {
             $table->dropColumn(['brand', 'plu_number']);

@@ -1,5 +1,11 @@
 name: CRM — CI
 
+# NOTA: a pesar del nombre (quedó de cuando este workflow nació sólo para
+# CRM), el trigger de pull_request ya corre en TODO PR hacia develop/main,
+# sin importar qué módulo se haya tocado. Por eso el job de tests corre la
+# suite completa de PHPUnit (no solo --filter=CRM): así cualquier módulo con
+# cobertura (CRM, Activos Fijos, y los que se vayan agregando) queda
+# validado automáticamente sin tener que volver a tocar este archivo.
 on:
   push:
     branches:
@@ -11,7 +17,9 @@ on:
 
 jobs:
   # ──────────────────────────────────────────────────────────────
-  # Backend: PHPUnit — solo tests del módulo CRM
+  # Backend: PHPUnit — suite completa (CRM, Activos Fijos, y lo que se
+  # vaya agregando). Se mantiene el nombre del job para no romper checks
+  # requeridos ya configurados en las reglas de protección de rama.
   # ──────────────────────────────────────────────────────────────
   backend-tests:
     name: PHP Tests (CRM)
@@ -67,9 +75,9 @@ jobs:
         working-directory: sentinel-back
         run: php artisan migrate --env=testing --force
 
-      - name: Run CRM tests
+      - name: Run backend test suite
         working-directory: sentinel-back
-        run: php artisan test --filter=CRM --env=testing
+        run: php artisan test --env=testing
 
   # ──────────────────────────────────────────────────────────────
   # Frontend: build check — solo si hay cambios en src/views/crm

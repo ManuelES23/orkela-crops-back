@@ -46,6 +46,15 @@ return new class extends Migration
             ]);
         }
 
+        // Los índices que incluyen entity_id deben quitarse antes de la FK y
+        // las columnas: MySQL lo hace implícito al hacer dropColumn, pero
+        // SQLite (usado en tests) reconstruye la tabla preservando índices y
+        // falla con "no such column: entity_id" si siguen ahí.
+        Schema::table('areas', function (Blueprint $table) {
+            $table->dropIndex(['entity_id', 'is_active']);
+            $table->dropIndex(['entity_id', 'allows_inventory']);
+        });
+
         // 3. Eliminar columnas que ahora están en la tabla pivote de la tabla areas
         Schema::table('areas', function (Blueprint $table) {
             // Eliminar foreign key y columnas

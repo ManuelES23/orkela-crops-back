@@ -7,6 +7,13 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Migración de saneamiento de datos históricos (UPDATE...JOIN,
+        // sintaxis específica de MySQL). En una BD nueva/de test no hay
+        // datos que sanear, así que se omite fuera de MySQL.
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         // Sanea snapshots historicos:
         // - lote_producto_terminado desde produccion_empaque.lote_producto_terminado
         // - lote (lote empaque) desde subentradas de recepcion o, en su defecto, lote del proceso

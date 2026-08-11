@@ -9,8 +9,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Expand status enum to include lavado pipeline states
-        DB::statement("ALTER TABLE proceso_empaque MODIFY COLUMN status ENUM('en_piso','lavando','lavado','hidrotermico','enfriando','listo_produccion','en_proceso','procesado','agotado') DEFAULT 'en_piso'");
+        // Expand status enum to include lavado pipeline states (sintaxis
+        // específica de MySQL; se omite en SQLite -usado en tests-).
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE proceso_empaque MODIFY COLUMN status ENUM('en_piso','lavando','lavado','hidrotermico','enfriando','listo_produccion','en_proceso','procesado','agotado') DEFAULT 'en_piso'");
+        }
 
         Schema::table('proceso_empaque', function (Blueprint $table) {
             $table->date('fecha_lavado')->nullable()->after('fecha_proceso');

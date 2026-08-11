@@ -30,7 +30,7 @@ class ClienteController extends CrmBaseController
         $empresaId = $this->getEmpresaId($request);
 
         $query = CrmCliente::query()
-            ->empresa($empresaId)
+            ->where('empresa_id', $empresaId)
             ->with(self::RELACIONES)
             ->when($request->search, function ($q, $search) {
                 $q->where(function ($sub) use ($search) {
