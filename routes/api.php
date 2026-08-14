@@ -295,6 +295,10 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::apiResource('empleados', App\Http\Controllers\Api\SplendidFarms\Administration\SfEmployeeController::class)
                     ->parameters(['empleados' => 'sfEmployee']);
 
+                // Biometría facial (enrolamiento)
+                Route::post('empleados/{sfEmployee}/face-template', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFaceTemplateController::class, 'store']);
+                Route::delete('empleados/{sfEmployee}/face-template', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFaceTemplateController::class, 'destroy']);
+
                 // Catálogo de grupos salariales (A-Z)
                 Route::get('grupos/list', [App\Http\Controllers\Api\SplendidFarms\Administration\SfPositionGroupController::class, 'list']);
                 Route::apiResource('grupos', App\Http\Controllers\Api\SplendidFarms\Administration\SfPositionGroupController::class)

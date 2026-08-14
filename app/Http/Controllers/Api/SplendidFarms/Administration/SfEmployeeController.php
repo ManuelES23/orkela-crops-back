@@ -18,6 +18,7 @@ class SfEmployeeController extends Controller
     {
         $query = SfEmployee::query()
             ->with('enterprise:id,name,slug')
+            ->withExists(['faceTemplate as has_face_template'])
             ->when($request->enterprise_id, fn($q, $v) => $q->where('enterprise_id', $v))
             ->when($request->employee_type, fn($q, $v) => $q->where('employee_type', $v))
             ->when($request->status, fn($q, $v) => $q->where('status', $v))
