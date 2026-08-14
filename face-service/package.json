@@ -1,0 +1,21 @@
+{
+  "name": "sentinel-face-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Servicio interno de embeddings faciales para SENTINEL 3.0 (SplendidFarms)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test --test-force-exit"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.55",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "^4.22.0",
+    "@vladmandic/face-api": "^1.7.15",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1"
+  }
+}
