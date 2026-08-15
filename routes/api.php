@@ -299,6 +299,9 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::post('empleados/{sfEmployee}/face-template', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFaceTemplateController::class, 'store']);
                 Route::delete('empleados/{sfEmployee}/face-template', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFaceTemplateController::class, 'destroy']);
 
+                // Checador de campo (Plan 2)
+                Route::get('field-checks/crew-package', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFieldCheckController::class, 'crewPackage']);
+
                 // Catálogo de grupos salariales (A-Z)
                 Route::get('grupos/list', [App\Http\Controllers\Api\SplendidFarms\Administration\SfPositionGroupController::class, 'list']);
                 Route::apiResource('grupos', App\Http\Controllers\Api\SplendidFarms\Administration\SfPositionGroupController::class)
