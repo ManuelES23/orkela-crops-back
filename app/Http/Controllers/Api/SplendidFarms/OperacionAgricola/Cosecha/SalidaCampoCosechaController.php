@@ -367,7 +367,7 @@ class SalidaCampoCosechaController extends Controller
         // físicamente en algún momento (dejando un hueco en la numeración, p.ej.
         // ...0016, ...0018, ...0019 sin ...0017), COUNT()+1 puede volver a calcular
         // un número que ya está tomado y chocar siempre contra el mismo folio.
-        $lastFolio = SalidaCampoCosecha::where('temporada_id', $data['temporada_id'])
+        $lastFolioSalida = SalidaCampoCosecha::where('temporada_id', $data['temporada_id'])
             ->where('productor_id', $data['productor_id'])
             ->where('zona_cultivo_id', $data['zona_cultivo_id'] ?? null)
             ->where('lote_id', $data['lote_id'])
@@ -376,9 +376,28 @@ class SalidaCampoCosechaController extends Controller
             ->orderByDesc('folio_salida')
             ->value('folio_salida');
 
+        // recepciones_empaque comparte el mismo espacio de numeración: hay
+        // recepciones dadas de alta manualmente (sin salida_campo_id) que usan este
+        // mismo formato de folio directamente en esa tabla. Si no se consideran aquí,
+        // una salida nueva puede recalcular un consecutivo que una recepción manual
+        // ya tomó y, al recibirla más adelante (RecepcionEmpaqueController copia
+        // folio_salida tal cual a folio_recepcion), truena por folio_recepcion
+        // duplicado.
+        $lastFolioRecepcion = RecepcionEmpaque::withTrashed()
+            ->where('temporada_id', $data['temporada_id'])
+            ->where('productor_id', $data['productor_id'])
+            ->where('zona_cultivo_id', $data['zona_cultivo_id'] ?? null)
+            ->where('lote_id', $data['lote_id'])
+            ->where('etapa_id', $data['etapa_id'] ?? null)
+            ->where('folio_recepcion', 'like', "{$prefix}%")
+            ->orderByDesc('folio_recepcion')
+            ->value('folio_recepcion');
+
         $nextNum = 1;
-        if ($lastFolio) {
-            $nextNum = (int) substr($lastFolio, -2) + 1;
+        foreach ([$lastFolioSalida, $lastFolioRecepcion] as $folio) {
+            if ($folio) {
+                $nextNum = max($nextNum, (int) substr($folio, -2) + 1);
+            }
         }
 
         $consecutivoStr = str_pad($nextNum, 2, '0', STR_PAD_LEFT);

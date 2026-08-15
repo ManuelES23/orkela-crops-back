@@ -9,9 +9,11 @@ use App\Models\Etapa;
 use App\Models\RecepcionEmpaque;
 use App\Models\SalidaCampoCosecha;
 use App\Models\TipoCarga;
+use Illuminate\Database\QueryException;
 use Illuminate\Validation\Rule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class RecepcionEmpaqueController extends Controller
 {
@@ -197,12 +199,35 @@ class RecepcionEmpaqueController extends Controller
         $validated['created_by'] = $request->user()->id;
         $validated['recibido_por'] = $request->user()->id;
 
-        // Folio: use salida's folio if linked, else generate REC-XX-NNNN
-        if (empty($validated['folio_recepcion'])) {
-            $validated['folio_recepcion'] = $this->generarFolio($validated);
+        // Folio: si viene de una salida ya trae folio_recepcion fijo (línea ~125,
+        // copiado de folio_salida) y no tiene sentido regenerarlo en un reintento.
+        // Si es entrada manual, se genera aquí y sí puede recalcularse ante colisión
+        // por inserciones casi simultáneas (misma combinación capturada dos veces
+        // a la vez desde Recepción, o a la vez que se crea una Salida nueva).
+        $folioEsManual = empty($validated['folio_recepcion']);
+        $recepcion = null;
+        $maxAttempts = 5;
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $recepcion = DB::transaction(function () use ($validated, $folioEsManual) {
+                    $payload = $validated;
+                    if ($folioEsManual) {
+                        $payload['folio_recepcion'] = $this->generarFolio($payload);
+                    }
+
+                    return RecepcionEmpaque::create($payload);
+                });
+
+                break;
+            } catch (QueryException $e) {
+                if ($folioEsManual && $this->isFolioDuplicateError($e) && $attempt < $maxAttempts) {
+                    continue;
+                }
+                throw $e;
+            }
         }
 
-        $recepcion = RecepcionEmpaque::create($validated);
         $recepcion->load($this->eagerLoad);
 
         // Update salida status to "entregada" when received from a salida de campo
@@ -417,29 +442,60 @@ class RecepcionEmpaqueController extends Controller
 
     private function generarFolio(array $data): string
     {
-        // Formato solicitado para entradas manuales:
-        // productor-zona_cultivo-lote-etapa+consecutivo
-        // Con etapa:    01-01-01-0101  (etapa=01, consecutivo=01)
-        // Sin etapa:    01-01-01-0001  (etapa=00, consecutivo=01)
+        // Mismo formato que SalidaCampoCosechaController::generarFolio() (PP-ZZ-LL-EENN),
+        // para que ambas tablas compartan el mismo espacio de numeración por combinación
+        // productor/zona/lote/etapa dentro de la temporada. El segmento de lote usa
+        // lote.numero_lote (no el lote_id crudo) y el de etapa usa etapa.orden (no el
+        // etapa_id crudo) — igual que el lado de Salida — para que los prefijos calcen
+        // entre los dos generadores y la búsqueda cruzada de abajo funcione.
         $productor = str_pad((string) ((int) ($data['productor_id'] ?? 0)), 2, '0', STR_PAD_LEFT);
         $zona = str_pad((string) ((int) ($data['zona_cultivo_id'] ?? 0)), 2, '0', STR_PAD_LEFT);
-        $lote = str_pad((string) ((int) ($data['lote_id'] ?? 0)), 2, '0', STR_PAD_LEFT);
-        $etapa = str_pad((string) ((int) ($data['etapa_id'] ?? 0)), 2, '0', STR_PAD_LEFT);
 
-        $prefix = "{$productor}-{$zona}-{$lote}-{$etapa}";
+        $lote = !empty($data['lote_id']) ? Lote::find($data['lote_id']) : null;
+        $loteNum = str_pad((string) ((int) ($lote?->numero_lote ?? 0)), 2, '0', STR_PAD_LEFT);
 
-        $lastFolio = RecepcionEmpaque::withTrashed()
+        $etapa = !empty($data['etapa_id']) ? Etapa::find($data['etapa_id']) : null;
+        $etapaOrden = str_pad((string) ((int) ($etapa?->orden ?? 0)), 2, '0', STR_PAD_LEFT);
+
+        $prefix = "{$productor}-{$zona}-{$loteNum}-{$etapaOrden}";
+
+        // folio_recepcion es unique GLOBAL en la BD (no por entity_id), así que el
+        // cálculo tampoco debe acotarse por entidad — de lo contrario dos plantas
+        // recibiendo del mismo productor/lote podrían calcular el mismo consecutivo
+        // y chocar contra ese unique al insertar.
+        $lastFolioRecepcion = RecepcionEmpaque::withTrashed()
             ->where('temporada_id', $data['temporada_id'])
-            ->where('entity_id', $data['entity_id'])
             ->where('folio_recepcion', 'like', "{$prefix}%")
             ->orderByDesc('folio_recepcion')
             ->value('folio_recepcion');
 
+        // salidas_campo_cosecha comparte el mismo espacio de numeración: puede existir
+        // una salida para esta combinación aún no recibida (folio ya "reservado" en esa
+        // tabla). Si no se considera aquí, una recepción manual nueva puede recalcular
+        // un número que esa salida ya usó y, al recibirla después (se copia folio_salida
+        // tal cual a folio_recepcion), chocaría contra el folio manual ya insertado.
+        $lastFolioSalida = SalidaCampoCosecha::where('temporada_id', $data['temporada_id'])
+            ->where('productor_id', $data['productor_id'] ?? null)
+            ->where('zona_cultivo_id', $data['zona_cultivo_id'] ?? null)
+            ->where('lote_id', $data['lote_id'] ?? null)
+            ->where('etapa_id', $data['etapa_id'] ?? null)
+            ->where('folio_salida', 'like', "{$prefix}%")
+            ->orderByDesc('folio_salida')
+            ->value('folio_salida');
+
         $nextConsecutivo = 1;
-        if ($lastFolio && preg_match('/(\d{2})$/', $lastFolio, $matches)) {
-            $nextConsecutivo = ((int) $matches[1]) + 1;
+        foreach ([$lastFolioRecepcion, $lastFolioSalida] as $folio) {
+            if ($folio && preg_match('/(\d{2})$/', $folio, $matches)) {
+                $nextConsecutivo = max($nextConsecutivo, ((int) $matches[1]) + 1);
+            }
         }
 
         return $prefix . str_pad((string) $nextConsecutivo, 2, '0', STR_PAD_LEFT);
+    }
+
+    private function isFolioDuplicateError(QueryException $e): bool
+    {
+        return $e->getCode() === '23000'
+            && str_contains($e->getMessage(), 'recepciones_empaque_folio_recepcion_unique');
     }
 }
