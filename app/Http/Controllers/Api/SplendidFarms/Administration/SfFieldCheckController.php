@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class SfFieldCheckController extends Controller
 {
@@ -71,7 +72,12 @@ class SfFieldCheckController extends Controller
             'enterprise_id' => 'required|exists:enterprises,id',
             'checks' => 'required|array|min:1|max:20',
             'checks.*.client_uuid' => 'required|uuid',
-            'checks.*.sf_employee_id' => 'nullable|exists:sf_employees,id',
+            'checks.*.sf_employee_id' => [
+                'nullable',
+                Rule::exists('sf_employees', 'id')->where(function ($query) use ($request) {
+                    $query->where('enterprise_id', $request->input('enterprise_id'));
+                }),
+            ],
             'checks.*.type' => 'required|in:' . SfFieldCheck::TYPE_CHECK_IN . ',' . SfFieldCheck::TYPE_CHECK_OUT,
             'checks.*.checked_at' => 'required|date',
             'checks.*.evidence_photo' => 'required|string',

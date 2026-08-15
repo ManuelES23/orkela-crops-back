@@ -224,4 +224,29 @@ class SfFieldCheckControllerTest extends TestCase
         $check = \App\Models\SfFieldCheck::where('client_uuid', $uuid)->firstOrFail();
         $this->assertGreaterThanOrEqual(2600, $check->clock_skew_seconds); // ~45 min en segundos, con margen
     }
+
+    public function test_sync_rejects_employee_from_a_different_enterprise(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        [$otherUser, $otherEnterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $otherEmployee = $this->createSfEmployee($otherEnterprise->id, ['status' => 'active']);
+
+        $uuid = (string) \Illuminate\Support\Str::uuid();
+        $response = $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [
+            'enterprise_id' => $enterprise->id,
+            'checks' => [[
+                'client_uuid' => $uuid,
+                'sf_employee_id' => $otherEmployee->id,
+                'type' => 'check_in',
+                'checked_at' => now()->toIso8601String(),
+                'evidence_photo' => $this->tinyJpegBase64(),
+                'client_confidence' => 0.1,
+            ]],
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertDatabaseMissing('sf_field_checks', ['client_uuid' => $uuid]);
+    }
 }
