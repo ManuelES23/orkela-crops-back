@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\Api\SplendidFarms\Administration;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\VerifyFieldCheckJob;
 use App\Models\SfEmployee;
+use App\Models\SfFieldCheck;
 use App\Services\ThumbnailService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class SfFieldCheckController extends Controller
 {
@@ -56,5 +60,82 @@ class SfFieldCheckController extends Controller
                 'employees' => $rows,
             ],
         ]);
+    }
+
+    /**
+     * Sincroniza un lote de chequeos de campo. Idempotente por client_uuid.
+     */
+    public function sync(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'enterprise_id' => 'required|exists:enterprises,id',
+            'checks' => 'required|array|min:1|max:20',
+            'checks.*.client_uuid' => 'required|uuid',
+            'checks.*.sf_employee_id' => 'nullable|exists:sf_employees,id',
+            'checks.*.type' => 'required|in:' . SfFieldCheck::TYPE_CHECK_IN . ',' . SfFieldCheck::TYPE_CHECK_OUT,
+            'checks.*.checked_at' => 'required|date',
+            'checks.*.evidence_photo' => 'required|string',
+            'checks.*.client_confidence' => 'nullable|numeric|min:0',
+            'checks.*.manual_override' => 'nullable|boolean',
+            'checks.*.latitude' => 'nullable|numeric|between:-90,90',
+            'checks.*.longitude' => 'nullable|numeric|between:-180,180',
+            'checks.*.device_info' => 'nullable|array',
+        ]);
+
+        $results = [];
+
+        foreach ($validated['checks'] as $item) {
+            $existing = SfFieldCheck::where('client_uuid', $item['client_uuid'])->first();
+            if ($existing) {
+                $results[] = ['client_uuid' => $item['client_uuid'], 'status' => 'duplicate'];
+                continue;
+            }
+
+            $decodedPhoto = $this->decodeBase64Photo($item['evidence_photo']);
+            if ($decodedPhoto === null || strlen($decodedPhoto) > 2 * 1024 * 1024) {
+                $results[] = ['client_uuid' => $item['client_uuid'], 'status' => 'rejected', 'reason' => 'foto de evidencia inválida o demasiado grande'];
+                continue;
+            }
+
+            $photoPath = 'private/sf-field-checks-evidence/' . $item['client_uuid'] . '.jpg';
+            Storage::disk('local')->put($photoPath, $decodedPhoto);
+
+            $checkedAt = Carbon::parse($item['checked_at']);
+            $clockSkewSeconds = abs(now()->diffInSeconds($checkedAt));
+
+            $check = SfFieldCheck::create([
+                'client_uuid' => $item['client_uuid'],
+                'sf_employee_id' => $item['sf_employee_id'] ?? null,
+                'checked_by_user_id' => $request->user()->id,
+                'type' => $item['type'],
+                'checked_at' => $checkedAt,
+                'synced_at' => now(),
+                'evidence_photo_path' => $photoPath,
+                'client_confidence' => $item['client_confidence'] ?? null,
+                'verification_status' => SfFieldCheck::STATUS_PENDING,
+                'manual_override' => $item['manual_override'] ?? false,
+                'latitude' => $item['latitude'] ?? null,
+                'longitude' => $item['longitude'] ?? null,
+                'device_info' => $item['device_info'] ?? null,
+                'clock_skew_seconds' => $clockSkewSeconds,
+            ]);
+
+            VerifyFieldCheckJob::dispatch($check->id);
+
+            $results[] = ['client_uuid' => $item['client_uuid'], 'status' => 'accepted'];
+        }
+
+        return response()->json(['success' => true, 'data' => ['results' => $results]]);
+    }
+
+    private function decodeBase64Photo(string $data): ?string
+    {
+        if (str_contains($data, 'base64,')) {
+            $data = substr($data, strpos($data, 'base64,') + 7);
+        }
+
+        $decoded = base64_decode($data, true);
+
+        return $decoded === false ? null : $decoded;
     }
 }

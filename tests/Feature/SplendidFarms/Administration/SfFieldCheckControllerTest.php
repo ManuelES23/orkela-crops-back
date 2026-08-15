@@ -5,6 +5,8 @@ namespace Tests\Feature\SplendidFarms\Administration;
 use App\Models\SfEmployeeFaceTemplate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\CreatesSfPersonalFixtures;
 use Tests\TestCase;
@@ -88,5 +90,138 @@ class SfFieldCheckControllerTest extends TestCase
 
         $ids = collect($response->json('data.employees'))->pluck('id');
         $this->assertFalse($ids->contains($otherEmployee->id));
+    }
+
+    public function test_sync_requires_authentication(): void
+    {
+        $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [])
+            ->assertStatus(401);
+    }
+
+    private function fakeEmbedResponse(): void
+    {
+        Http::fake([
+            '*/embed' => Http::response([
+                'embedding' => array_fill(0, 128, 0.1),
+                'model_version' => 'faceapi-v1',
+            ], 200),
+        ]);
+    }
+
+    private function tinyJpegBase64(): string
+    {
+        // JPEG 1x1 válido, suficiente para pasar por el pipeline de storage (el matching real se prueba en Task 4)
+        return 'data:image/jpeg;base64,' . base64_encode(base64_decode(
+            '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k='
+        ));
+    }
+
+    public function test_sync_accepts_new_check_and_dispatches_verification(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $this->enrollEmployee($employee->id);
+
+        $uuid = (string) \Illuminate\Support\Str::uuid();
+        $response = $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [
+            'enterprise_id' => $enterprise->id,
+            'checks' => [[
+                'client_uuid' => $uuid,
+                'sf_employee_id' => $employee->id,
+                'type' => 'check_in',
+                'checked_at' => now()->toIso8601String(),
+                'evidence_photo' => $this->tinyJpegBase64(),
+                'client_confidence' => 0.12,
+                'manual_override' => false,
+            ]],
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertSame('accepted', collect($response->json('data.results'))->firstWhere('client_uuid', $uuid)['status']);
+        $this->assertDatabaseHas('sf_field_checks', ['client_uuid' => $uuid, 'sf_employee_id' => $employee->id]);
+        Queue::assertPushed(\App\Jobs\VerifyFieldCheckJob::class);
+    }
+
+    public function test_sync_is_idempotent_on_repeated_client_uuid(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $this->enrollEmployee($employee->id);
+
+        $payload = [
+            'enterprise_id' => $enterprise->id,
+            'checks' => [[
+                'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
+                'sf_employee_id' => $employee->id,
+                'type' => 'check_in',
+                'checked_at' => now()->toIso8601String(),
+                'evidence_photo' => $this->tinyJpegBase64(),
+                'client_confidence' => 0.1,
+            ]],
+        ];
+        $uuid = $payload['checks'][0]['client_uuid'];
+
+        $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', $payload)->assertStatus(200);
+        $second = $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', $payload);
+
+        $this->assertSame('duplicate', collect($second->json('data.results'))->firstWhere('client_uuid', $uuid)['status']);
+        $this->assertSame(1, \App\Models\SfFieldCheck::where('client_uuid', $uuid)->count());
+    }
+
+    public function test_sync_accepts_check_without_employee_match(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+
+        $uuid = (string) \Illuminate\Support\Str::uuid();
+        $response = $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [
+            'enterprise_id' => $enterprise->id,
+            'checks' => [[
+                'client_uuid' => $uuid,
+                'sf_employee_id' => null,
+                'type' => 'check_in',
+                'checked_at' => now()->toIso8601String(),
+                'evidence_photo' => $this->tinyJpegBase64(),
+                'client_confidence' => 0,
+            ]],
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertSame('accepted', collect($response->json('data.results'))->firstWhere('client_uuid', $uuid)['status']);
+        $check = \App\Models\SfFieldCheck::where('client_uuid', $uuid)->firstOrFail();
+        $this->assertNull($check->sf_employee_id);
+        $this->assertSame(\App\Models\SfFieldCheck::STATUS_PENDING, $check->verification_status);
+    }
+
+    public function test_sync_computes_clock_skew(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $this->enrollEmployee($employee->id);
+
+        $uuid = (string) \Illuminate\Support\Str::uuid();
+        $skewedTime = now()->subMinutes(45)->toIso8601String();
+
+        $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [
+            'enterprise_id' => $enterprise->id,
+            'checks' => [[
+                'client_uuid' => $uuid,
+                'sf_employee_id' => $employee->id,
+                'type' => 'check_in',
+                'checked_at' => $skewedTime,
+                'evidence_photo' => $this->tinyJpegBase64(),
+                'client_confidence' => 0.1,
+            ]],
+        ])->assertStatus(200);
+
+        $check = \App\Models\SfFieldCheck::where('client_uuid', $uuid)->firstOrFail();
+        $this->assertGreaterThanOrEqual(2600, $check->clock_skew_seconds); // ~45 min en segundos, con margen
     }
 }
