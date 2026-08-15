@@ -18,7 +18,7 @@ trait Loggable
                 model: class_basename($model),
                 modelId: $model->id,
                 oldValues: null,
-                newValues: $model->getAttributes()
+                newValues: static::filterLoggableAttributes($model, $model->getAttributes())
             );
         });
 
@@ -26,7 +26,7 @@ trait Loggable
         static::updated(function ($model) {
             $dirty = $model->getDirty();
             $original = [];
-            
+
             foreach (array_keys($dirty) as $key) {
                 $original[$key] = $model->getOriginal($key);
             }
@@ -35,8 +35,8 @@ trait Loggable
                 action: 'update',
                 model: class_basename($model),
                 modelId: $model->id,
-                oldValues: $original,
-                newValues: $dirty
+                oldValues: static::filterLoggableAttributes($model, $original),
+                newValues: static::filterLoggableAttributes($model, $dirty)
             );
         });
 
@@ -46,9 +46,34 @@ trait Loggable
                 action: 'delete',
                 model: class_basename($model),
                 modelId: $model->id,
-                oldValues: $model->getAttributes(),
+                oldValues: static::filterLoggableAttributes($model, $model->getAttributes()),
                 newValues: null
             );
         });
+    }
+
+    /**
+     * Quita del arreglo de atributos aquellos que el modelo marcó como
+     * sensibles vía `protected array $loggableExcept = [...]`, para que
+     * nunca se copien a ActivityLog.old_values / new_values.
+     *
+     * Si el modelo no define $loggableExcept (o lo define vacío), el
+     * arreglo se retorna sin modificar — comportamiento por defecto
+     * idéntico al de antes de este método para cualquier modelo que no
+     * opte explícitamente por la exclusión.
+     */
+    protected static function filterLoggableAttributes($model, ?array $attributes): ?array
+    {
+        if (empty($attributes)) {
+            return $attributes;
+        }
+
+        $except = property_exists($model, 'loggableExcept') ? (array) $model->loggableExcept : [];
+
+        if (empty($except)) {
+            return $attributes;
+        }
+
+        return array_diff_key($attributes, array_flip($except));
     }
 }

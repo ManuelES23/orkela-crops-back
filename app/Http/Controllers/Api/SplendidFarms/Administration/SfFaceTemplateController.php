@@ -1,0 +1,164 @@
+<?php
+
+namespace App\Http\Controllers\Api\SplendidFarms\Administration;
+
+use App\Exceptions\FaceRecognitionException;
+use App\Http\Controllers\Controller;
+use App\Models\SfEmployee;
+use App\Models\SfEmployeeFaceTemplate;
+use App\Services\FaceRecognitionService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+
+class SfFaceTemplateController extends Controller
+{
+    public function __construct(private readonly FaceRecognitionService $faceService)
+    {
+    }
+
+    /**
+     * Enrolar (o re-enrolar) la plantilla facial de un empleado.
+     */
+    public function store(Request $request, SfEmployee $sfEmployee): JsonResponse
+    {
+        $request->validate([
+            'photo' => 'required|image|mimes:jpeg,jpg,png|max:5120',
+            'consent_signed' => 'required|accepted',
+            'consent_document' => 'nullable|file|mimes:pdf,jpeg,jpg,png|max:5120',
+        ]);
+
+        try {
+            $result = $this->faceService->embed(
+                $request->file('photo')->get(),
+                $request->file('photo')->getClientOriginalName()
+            );
+        } catch (FaceRecognitionException $e) {
+            $messages = [
+                'no_face' => 'No se detectó ningún rostro en la foto. Toma la foto de frente, con buena luz.',
+                'multiple_faces' => 'Se detectó más de un rostro. La foto debe contener solo al empleado.',
+                'service_unavailable' => 'El servicio de reconocimiento facial no está disponible. Intenta de nuevo.',
+                'invalid_response' => 'Respuesta inválida del servicio de reconocimiento facial.',
+            ];
+
+            $status = $e->getReason() === 'service_unavailable' ? 503 : 422;
+
+            return response()->json([
+                'status' => 'error',
+                'message' => $messages[$e->getReason()] ?? $messages['invalid_response'],
+            ], $status);
+        }
+
+        $photoPath = $request->file('photo')->store('private/sf-face-templates', 'local');
+
+        $newConsentDocumentPath = null;
+        if ($request->hasFile('consent_document')) {
+            $newConsentDocumentPath = $request->file('consent_document')
+                ->store('private/sf-face-consents', 'local');
+        }
+
+        $previous = SfEmployeeFaceTemplate::where('sf_employee_id', $sfEmployee->id)->first();
+
+        // Si no se subió un consentimiento nuevo, conservar el apuntador al
+        // documento firmado previamente enrolado en vez de anularlo — de lo
+        // contrario un re-enrolamiento sin re-adjuntar el PDF deja el
+        // consentimiento firmado "huérfano" (archivo sigue en disco, pero
+        // nada apunta a él) mientras consent_signed_at se refresca como si
+        // el consentimiento se hubiera capturado de nuevo.
+        $consentDocumentPath = $newConsentDocumentPath ?? $previous?->consent_document_path;
+
+        // Rutas de archivos previos a borrar SOLO si la transacción de abajo
+        // confirma exitosamente — nunca antes, para no dejar una foto o
+        // documento borrados sin que la fila en BD apunte a los nuevos.
+        $photoPathToDelete = ($previous && $previous->photo_path && $previous->photo_path !== $photoPath)
+            ? $previous->photo_path
+            : null;
+        $consentDocumentPathToDelete = ($newConsentDocumentPath !== null
+            && $previous
+            && $previous->consent_document_path
+            && $previous->consent_document_path !== $newConsentDocumentPath)
+            ? $previous->consent_document_path
+            : null;
+
+        try {
+            $template = DB::transaction(function () use ($sfEmployee, $result, $photoPath, $consentDocumentPath, $request) {
+                return SfEmployeeFaceTemplate::updateOrCreate(
+                    ['sf_employee_id' => $sfEmployee->id],
+                    [
+                        'embedding' => $result['embedding'],
+                        'photo_path' => $photoPath,
+                        'model_version' => $result['model_version'],
+                        'enrolled_by_user_id' => $request->user()?->id,
+                        'enrolled_at' => now(),
+                        'consent_signed_at' => now(),
+                        'consent_document_path' => $consentDocumentPath,
+                        'status' => SfEmployeeFaceTemplate::STATUS_ACTIVE,
+                        'revoked_at' => null,
+                    ]
+                );
+            });
+        } catch (\Throwable $e) {
+            // La transacción no se confirmó: no borrar ningún archivo previo,
+            // y limpiar los archivos recién subidos que quedaron huérfanos.
+            if (Storage::disk('local')->exists($photoPath)) {
+                Storage::disk('local')->delete($photoPath);
+            }
+            if ($newConsentDocumentPath && Storage::disk('local')->exists($newConsentDocumentPath)) {
+                Storage::disk('local')->delete($newConsentDocumentPath);
+            }
+
+            throw $e;
+        }
+
+        // La transacción confirmó: ahora sí es seguro borrar los archivos
+        // previos que fueron reemplazados, para no acumular datos
+        // biométricos huérfanos en disco.
+        if ($photoPathToDelete && Storage::disk('local')->exists($photoPathToDelete)) {
+            Storage::disk('local')->delete($photoPathToDelete);
+        }
+        if ($consentDocumentPathToDelete && Storage::disk('local')->exists($consentDocumentPathToDelete)) {
+            Storage::disk('local')->delete($consentDocumentPathToDelete);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Plantilla facial enrolada correctamente',
+            'data' => [
+                'id' => $template->id,
+                'sf_employee_id' => $template->sf_employee_id,
+                'model_version' => $template->model_version,
+                'enrolled_at' => $template->enrolled_at,
+                'status' => $template->status,
+            ],
+        ], 201);
+    }
+
+    /**
+     * Revocar la plantilla facial de un empleado.
+     */
+    public function destroy(Request $request, SfEmployee $sfEmployee): JsonResponse
+    {
+        $template = SfEmployeeFaceTemplate::where('sf_employee_id', $sfEmployee->id)
+            ->where('status', SfEmployeeFaceTemplate::STATUS_ACTIVE)
+            ->first();
+
+        if (! $template) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'El empleado no tiene plantilla facial activa',
+            ], 404);
+        }
+
+        $template->update([
+            'status' => SfEmployeeFaceTemplate::STATUS_REVOKED,
+            'revoked_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Plantilla facial revocada correctamente',
+            'data' => null,
+        ]);
+    }
+}

@@ -97,6 +97,12 @@ class SfEmployee extends Model
         return $this->hasOne(SfEmployeeContract::class)->where('status', 'active')->latestOfMany('version');
     }
 
+    public function faceTemplate()
+    {
+        return $this->hasOne(SfEmployeeFaceTemplate::class, 'sf_employee_id')
+            ->where('status', SfEmployeeFaceTemplate::STATUS_ACTIVE);
+    }
+
     // ── Scopes ──
     public function scopeActive($query)
     {

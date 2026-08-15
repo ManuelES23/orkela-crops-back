@@ -40,4 +40,10 @@ return [
         'model' => env('OPENAI_MODEL', 'gpt-4o'),
     ],
 
+    'face_recognition' => [
+        'url' => env('FACE_RECOGNITION_URL', 'http://127.0.0.1:7601'),
+        'token' => env('FACE_RECOGNITION_TOKEN'),
+        'timeout' => env('FACE_RECOGNITION_TIMEOUT', 15),
+    ],
+
 ];
