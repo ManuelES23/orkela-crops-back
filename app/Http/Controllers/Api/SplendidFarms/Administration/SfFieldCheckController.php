@@ -134,6 +134,33 @@ class SfFieldCheckController extends Controller
         return response()->json(['success' => true, 'data' => ['results' => $results]]);
     }
 
+    /**
+     * Listado paginado de chequeos de campo, con filtros.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'enterprise_id' => 'required|exists:enterprises,id',
+            'sf_employee_id' => 'nullable|exists:sf_employees,id',
+            'verification_status' => 'nullable|in:pending,verified,low_confidence,mismatch,no_template,manually_approved,rejected',
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date',
+        ]);
+
+        $query = SfFieldCheck::query()
+            ->with(['employee:id,enterprise_id,code,first_name,last_name,second_last_name', 'checkedBy:id,name'])
+            ->whereHas('employee', fn ($q) => $q->where('enterprise_id', $validated['enterprise_id']))
+            ->when($validated['sf_employee_id'] ?? null, fn ($q, $v) => $q->where('sf_employee_id', $v))
+            ->when($validated['verification_status'] ?? null, fn ($q, $v) => $q->where('verification_status', $v))
+            ->when(($validated['start_date'] ?? null) && ($validated['end_date'] ?? null), fn ($q) => $q->whereBetween('checked_at', [$validated['start_date'], $validated['end_date']]))
+            ->orderByDesc('checked_at');
+
+        return response()->json([
+            'success' => true,
+            'data' => $query->paginate((int) $request->get('per_page', 50)),
+        ]);
+    }
+
     private function decodeBase64Photo(string $data): ?string
     {
         if (str_contains($data, 'base64,')) {

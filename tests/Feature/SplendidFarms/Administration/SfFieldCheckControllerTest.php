@@ -249,4 +249,40 @@ class SfFieldCheckControllerTest extends TestCase
         $response->assertStatus(422);
         $this->assertDatabaseMissing('sf_field_checks', ['client_uuid' => $uuid]);
     }
+
+    public function test_index_requires_authentication(): void
+    {
+        $this->getJson('/api/splendidfarms/administration/personal/field-checks?enterprise_id=1')
+            ->assertStatus(401);
+    }
+
+    public function test_index_filters_by_verification_status(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+
+        $verified = $this->makeCheckDirectly($employee->id, $user->id, ['verification_status' => 'verified']);
+        $mismatch = $this->makeCheckDirectly($employee->id, $user->id, ['verification_status' => 'mismatch']);
+
+        $response = $this->getJson("/api/splendidfarms/administration/personal/field-checks?enterprise_id={$enterprise->id}&verification_status=mismatch");
+
+        $response->assertStatus(200);
+        $ids = collect($response->json('data.data'))->pluck('id');
+        $this->assertTrue($ids->contains($mismatch->id));
+        $this->assertFalse($ids->contains($verified->id));
+    }
+
+    private function makeCheckDirectly(int $employeeId, int $checkerId, array $overrides = []): \App\Models\SfFieldCheck
+    {
+        return \App\Models\SfFieldCheck::create(array_merge([
+            'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'sf_employee_id' => $employeeId,
+            'checked_by_user_id' => $checkerId,
+            'type' => 'check_in',
+            'checked_at' => now(),
+            'evidence_photo_path' => 'private/sf-field-checks-evidence/fake.jpg',
+            'verification_status' => 'pending',
+            'manual_override' => false,
+        ], $overrides));
+    }
 }

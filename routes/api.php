@@ -302,6 +302,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 // Checador de campo (Plan 2)
                 Route::get('field-checks/crew-package', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFieldCheckController::class, 'crewPackage']);
                 Route::post('field-checks/sync', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFieldCheckController::class, 'sync']);
+                Route::get('field-checks', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFieldCheckController::class, 'index']);
 
                 // Catálogo de grupos salariales (A-Z)
                 Route::get('grupos/list', [App\Http\Controllers\Api\SplendidFarms\Administration\SfPositionGroupController::class, 'list']);
