@@ -206,4 +206,62 @@ class VerifyFieldCheckJobTest extends TestCase
 
         $this->assertEqualsWithDelta(9.0, (float) $record->hours_worked, 0.01);
     }
+
+    public function test_face_recognition_exception_routes_to_low_confidence(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        SfEmployeeFaceTemplate::create([
+            'sf_employee_id' => $employee->id,
+            'embedding' => array_fill(0, 128, 0.2),
+            'photo_path' => 'private/sf-face-templates/x.jpg',
+            'model_version' => 'faceapi-v1',
+            'enrolled_at' => now(),
+            'consent_signed_at' => now(),
+            'status' => SfEmployeeFaceTemplate::STATUS_ACTIVE,
+        ]);
+        // El face-service no pudo detectar un rostro en la foto -> FaceRecognitionService
+        // lanza FaceRecognitionException('no_face'); el evento no debe perderse.
+        Http::fake([
+            '*/embed' => Http::response(['error' => 'no_face'], 422),
+        ]);
+
+        $check = $this->makeCheck($employee->id, $user->id);
+
+        (new VerifyFieldCheckJob($check->id))->handle();
+
+        $check->refresh();
+        $this->assertSame(SfFieldCheck::STATUS_LOW_CONFIDENCE, $check->verification_status);
+        $this->assertNull($check->server_confidence);
+        $this->assertDatabaseCount('sf_attendance_records', 0);
+    }
+
+    public function test_missing_evidence_photo_routes_to_low_confidence(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $embedding = array_fill(0, 128, 0.2);
+        SfEmployeeFaceTemplate::create([
+            'sf_employee_id' => $employee->id,
+            'embedding' => $embedding,
+            'photo_path' => 'private/sf-face-templates/x.jpg',
+            'model_version' => 'faceapi-v1',
+            'enrolled_at' => now(),
+            'consent_signed_at' => now(),
+            'status' => SfEmployeeFaceTemplate::STATUS_ACTIVE,
+        ]);
+        $this->fakeEmbedResponse($embedding);
+
+        $check = $this->makeCheck($employee->id, $user->id);
+        // Simula una foto de evidencia borrada/no sincronizada: el disco tiene
+        // el registro del SfFieldCheck pero el archivo ya no existe.
+        Storage::disk('local')->delete($check->evidence_photo_path);
+
+        (new VerifyFieldCheckJob($check->id))->handle();
+
+        $check->refresh();
+        $this->assertSame(SfFieldCheck::STATUS_LOW_CONFIDENCE, $check->verification_status);
+        $this->assertNull($check->server_confidence);
+        $this->assertDatabaseCount('sf_attendance_records', 0);
+    }
 }

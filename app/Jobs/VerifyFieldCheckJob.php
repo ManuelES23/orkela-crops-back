@@ -56,16 +56,27 @@ class VerifyFieldCheckJob implements ShouldQueue
             return;
         }
 
+        // La foto de evidencia puede faltar (borrada, sync incompleto,
+        // almacenamiento corrupto). El disco 'local' tiene 'throw' => false
+        // (ver config/filesystems.php), así que Storage::get() NO lanza
+        // excepción para un archivo faltante — simplemente retorna null, que
+        // si no se detecta aquí terminaría enviándose como una foto "vacía"
+        // al face-service en vez de tratarse como un caso "no se puede
+        // verificar". Igual que un fallo del face-service, esto nunca debe
+        // tirar el job ni dejar el check atascado en 'pending': se enruta a
+        // revisión humana como cualquier otro evento no verificable.
+        if (! Storage::disk('local')->exists($check->evidence_photo_path)) {
+            $this->markUnverifiable($check);
+            return;
+        }
+
         try {
             $photoContents = Storage::disk('local')->get($check->evidence_photo_path);
             $result = $faceService->embed($photoContents);
             $distance = $matchService->euclideanDistance($result['embedding'], $template->embedding);
         } catch (FaceRecognitionException $e) {
             // No se pudo procesar la foto (sin rostro, servicio caído, etc.) — no se pierde el evento, va a revisión.
-            $check->update([
-                'verification_status' => SfFieldCheck::STATUS_LOW_CONFIDENCE,
-                'server_confidence' => null,
-            ]);
+            $this->markUnverifiable($check);
             return;
         }
 
@@ -100,6 +111,19 @@ class VerifyFieldCheckJob implements ShouldQueue
         ]);
 
         $this->consolidateAttendance($check);
+    }
+
+    /**
+     * Marca el check como no verificable (foto faltante o irreconocible,
+     * face-service caído, etc.): nunca se pierde el evento, siempre queda un
+     * estado accionable por un humano en vez de silenciarse o tronar el job.
+     */
+    private function markUnverifiable(SfFieldCheck $check): void
+    {
+        $check->update([
+            'verification_status' => SfFieldCheck::STATUS_LOW_CONFIDENCE,
+            'server_confidence' => null,
+        ]);
     }
 
     /**
