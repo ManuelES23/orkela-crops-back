@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Exceptions\FaceRecognitionException;
 use App\Services\FaceRecognitionService;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 class FaceRecognitionServiceTest extends TestCase
@@ -57,6 +58,78 @@ class FaceRecognitionServiceTest extends TestCase
         Http::fake([
             'face-service.test/embed' => Http::response(null, 500),
         ]);
+
+        try {
+            app(FaceRecognitionService::class)->embed('fake-jpeg-bytes');
+            $this->fail('Expected FaceRecognitionException');
+        } catch (FaceRecognitionException $e) {
+            $this->assertSame('service_unavailable', $e->getReason());
+        }
+    }
+
+    public function test_embed_logs_status_and_body_on_401_token_mismatch(): void
+    {
+        Http::fake([
+            'face-service.test/embed' => Http::response(['error' => 'unauthorized'], 401),
+        ]);
+
+        Log::shouldReceive('warning')
+            ->once()
+            ->with(
+                'FaceRecognitionService: respuesta no exitosa del face-service',
+                \Mockery::on(function (array $context) {
+                    return $context['status'] === 401
+                        && str_contains($context['body'], 'unauthorized');
+                })
+            );
+
+        try {
+            app(FaceRecognitionService::class)->embed('fake-jpeg-bytes');
+            $this->fail('Expected FaceRecognitionException');
+        } catch (FaceRecognitionException $e) {
+            $this->assertSame('service_unavailable', $e->getReason());
+        }
+    }
+
+    public function test_embed_logs_status_and_body_on_400_invalid_image(): void
+    {
+        Http::fake([
+            'face-service.test/embed' => Http::response(['error' => 'invalid_image'], 400),
+        ]);
+
+        Log::shouldReceive('warning')
+            ->once()
+            ->with(
+                'FaceRecognitionService: respuesta no exitosa del face-service',
+                \Mockery::on(function (array $context) {
+                    return $context['status'] === 400
+                        && str_contains($context['body'], 'invalid_image');
+                })
+            );
+
+        try {
+            app(FaceRecognitionService::class)->embed('fake-jpeg-bytes');
+            $this->fail('Expected FaceRecognitionException');
+        } catch (FaceRecognitionException $e) {
+            $this->assertSame('service_unavailable', $e->getReason());
+        }
+    }
+
+    public function test_embed_logs_status_and_body_on_500_internal_error(): void
+    {
+        Http::fake([
+            'face-service.test/embed' => Http::response(['error' => 'internal_error'], 500),
+        ]);
+
+        Log::shouldReceive('warning')
+            ->once()
+            ->with(
+                'FaceRecognitionService: respuesta no exitosa del face-service',
+                \Mockery::on(function (array $context) {
+                    return $context['status'] === 500
+                        && str_contains($context['body'], 'internal_error');
+                })
+            );
 
         try {
             app(FaceRecognitionService::class)->embed('fake-jpeg-bytes');

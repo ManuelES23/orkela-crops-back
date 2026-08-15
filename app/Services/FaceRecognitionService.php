@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\FaceRecognitionException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class FaceRecognitionService
 {
@@ -24,6 +25,10 @@ class FaceRecognitionService
                 ->attach('photo', $photoContents, $filename)
                 ->post(config('services.face_recognition.url') . '/embed');
         } catch (ConnectionException $e) {
+            Log::warning('FaceRecognitionService: face-service unreachable', [
+                'exception' => $e->getMessage(),
+            ]);
+
             throw new FaceRecognitionException('service_unavailable', $e->getMessage());
         }
 
@@ -35,6 +40,20 @@ class FaceRecognitionService
         }
 
         if (! $response->successful()) {
+            // Distintas causas (401 token mal configurado, 400 imagen
+            // inválida, 500 error interno del servicio Node, etc.) todas
+            // colapsan al mismo mensaje genérico "service_unavailable" de
+            // cara al usuario — eso es intencional para no filtrar detalles
+            // internos, pero sin este log un problema de configuración
+            // (token incorrecto) sería indistinguible de una caída real del
+            // servicio para quien opera el sistema. No se loguean los bytes
+            // de la foto enviada, solo el status y el cuerpo de respuesta
+            // del face-service.
+            Log::warning('FaceRecognitionService: respuesta no exitosa del face-service', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
             throw new FaceRecognitionException('service_unavailable', 'HTTP ' . $response->status());
         }
 

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\SplendidFarms\Administration;
 
+use App\Models\ActivityLog;
 use App\Models\SfEmployeeFaceTemplate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -93,6 +94,113 @@ class SfFaceTemplateControllerTest extends TestCase
 
         // Sigue habiendo una sola plantilla para el empleado (updateOrCreate)
         $this->assertSame(1, SfEmployeeFaceTemplate::where('sf_employee_id', $employee->id)->count());
+    }
+
+    public function test_enroll_does_not_leak_embedding_into_activity_log(): void
+    {
+        Storage::fake('local');
+        $this->fakeNodeService();
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id);
+
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face.jpg', 640, 480),
+            'consent_signed' => '1',
+        ])->assertStatus(201);
+
+        $log = ActivityLog::where('model', 'SfEmployeeFaceTemplate')->where('action', 'create')->firstOrFail();
+
+        $this->assertArrayNotHasKey('embedding', $log->new_values ?? []);
+        $this->assertNull($log->old_values);
+        // El resto de los atributos sí se deben seguir logueando con normalidad.
+        $this->assertArrayHasKey('photo_path', $log->new_values);
+        $this->assertArrayHasKey('status', $log->new_values);
+    }
+
+    public function test_reenroll_does_not_leak_old_or_new_embedding_into_activity_log(): void
+    {
+        Storage::fake('local');
+        $this->fakeNodeService();
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id);
+
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face1.jpg', 640, 480),
+            'consent_signed' => '1',
+        ])->assertStatus(201);
+
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face2.jpg', 640, 480),
+            'consent_signed' => '1',
+        ])->assertStatus(201);
+
+        $updateLog = ActivityLog::where('model', 'SfEmployeeFaceTemplate')->where('action', 'update')->firstOrFail();
+
+        $this->assertArrayNotHasKey('embedding', $updateLog->new_values ?? []);
+        $this->assertArrayNotHasKey('embedding', $updateLog->old_values ?? []);
+        // El resto de los campos que sí cambiaron (p. ej. photo_path) se deben
+        // seguir logueando con normalidad.
+        $this->assertArrayHasKey('photo_path', $updateLog->new_values);
+    }
+
+    public function test_reenroll_without_new_consent_document_preserves_existing_path(): void
+    {
+        Storage::fake('local');
+        $this->fakeNodeService();
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id);
+
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face1.jpg', 640, 480),
+            'consent_signed' => '1',
+            'consent_document' => UploadedFile::fake()->create('consent.pdf', 100, 'application/pdf'),
+        ])->assertStatus(201);
+
+        $original = SfEmployeeFaceTemplate::where('sf_employee_id', $employee->id)->firstOrFail();
+        $this->assertNotNull($original->consent_document_path);
+        Storage::disk('local')->assertExists($original->consent_document_path);
+        $originalConsentPath = $original->consent_document_path;
+
+        // Re-enrolamiento SIN volver a adjuntar el documento de consentimiento
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face2.jpg', 640, 480),
+            'consent_signed' => '1',
+        ])->assertStatus(201);
+
+        $template = SfEmployeeFaceTemplate::where('sf_employee_id', $employee->id)->firstOrFail();
+        $this->assertSame($originalConsentPath, $template->consent_document_path);
+        // El archivo original del consentimiento sigue en disco, no huérfano.
+        Storage::disk('local')->assertExists($originalConsentPath);
+    }
+
+    public function test_reenroll_with_new_consent_document_replaces_path_and_deletes_old_file(): void
+    {
+        Storage::fake('local');
+        $this->fakeNodeService();
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id);
+
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face1.jpg', 640, 480),
+            'consent_signed' => '1',
+            'consent_document' => UploadedFile::fake()->create('consent1.pdf', 100, 'application/pdf'),
+        ])->assertStatus(201);
+
+        $original = SfEmployeeFaceTemplate::where('sf_employee_id', $employee->id)->firstOrFail();
+        $originalConsentPath = $original->consent_document_path;
+        $this->assertNotNull($originalConsentPath);
+
+        // Re-enrolamiento adjuntando un documento de consentimiento nuevo
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face2.jpg', 640, 480),
+            'consent_signed' => '1',
+            'consent_document' => UploadedFile::fake()->create('consent2.pdf', 100, 'application/pdf'),
+        ])->assertStatus(201);
+
+        $template = SfEmployeeFaceTemplate::where('sf_employee_id', $employee->id)->firstOrFail();
+        $this->assertNotSame($originalConsentPath, $template->consent_document_path);
+        Storage::disk('local')->assertExists($template->consent_document_path);
+        Storage::disk('local')->assertMissing($originalConsentPath);
     }
 
     public function test_enroll_returns_422_when_no_face_detected(): void
