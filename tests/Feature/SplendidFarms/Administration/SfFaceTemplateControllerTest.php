@@ -286,4 +286,45 @@ class SfFaceTemplateControllerTest extends TestCase
         $this->get("/api/splendidfarms/administration/personal/empleados/{$employee->id}/face-template/photo")
             ->assertStatus(404);
     }
+
+    public function test_photo_requires_authentication(): void
+    {
+        // No se usa createAuthenticatedUserWithEnterprise() aquí a propósito
+        // (mismo motivo que test_evidence_photo_requires_authentication en
+        // SfFieldCheckControllerTest): ese helper deja al usuario autenticado
+        // como efecto colateral. Se crean Enterprise/SfEmployee "a mano" sin
+        // autenticar a nadie.
+        $enterprise = \App\Models\Enterprise::create([
+            'name' => 'Empresa de Prueba',
+            'slug' => 'test-photo-auth',
+            'description' => 'Empresa de prueba',
+            'is_active' => true,
+        ]);
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+
+        $this->getJson("/api/splendidfarms/administration/personal/empleados/{$employee->id}/face-template/photo")
+            ->assertStatus(401);
+    }
+
+    public function test_photo_rejects_cross_tenant(): void
+    {
+        Storage::fake('local');
+        $this->fakeNodeService();
+        [$userA, $enterpriseA] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterpriseA->id, ['status' => 'active']);
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face.jpg', 640, 480),
+            'consent_signed' => '1',
+        ])->assertStatus(201);
+
+        // La segunda llamada re-loguea (Sanctum::actingAs) al usuario de la
+        // empresa B: el acting user termina siendo $userB, miembro solo de
+        // $enterpriseB. Mismo patrón que
+        // test_crew_package_rejects_enterprise_the_user_does_not_belong_to en
+        // SfFieldCheckControllerTest.
+        [$userB, $enterpriseB] = $this->createAuthenticatedUserWithEnterprise();
+
+        $this->get("/api/splendidfarms/administration/personal/empleados/{$employee->id}/face-template/photo")
+            ->assertStatus(403);
+    }
 }
