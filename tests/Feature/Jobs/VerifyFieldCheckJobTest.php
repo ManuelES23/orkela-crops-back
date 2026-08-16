@@ -423,4 +423,28 @@ class VerifyFieldCheckJobTest extends TestCase
         $this->assertSame(SfFieldCheck::STATUS_LOW_CONFIDENCE, $check->verification_status);
         $this->assertNull($check->server_confidence);
     }
+
+    public function test_failed_callback_does_not_downgrade_an_already_verified_check(): void
+    {
+        // Simula la carrera descrita en M1: handle() ya dejó el check en
+        // 'verified' (y potencialmente ya consolidado en
+        // sf_attendance_records) antes de que AttendanceConsolidationService::
+        // consolidate() lanzara una excepción en un reintento posterior. Una
+        // vez agotados los reintentos, failed() NUNCA debe degradar un check
+        // que ya pasó de 'pending' — hacerlo tergiversaría lo que realmente
+        // pasó (el check sí se verificó).
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $check = $this->makeCheck($employee->id, $user->id, [
+            'verification_status' => SfFieldCheck::STATUS_VERIFIED,
+            'server_confidence' => 0.0123,
+        ]);
+
+        $job = new VerifyFieldCheckJob($check->id);
+        $job->failed(new \RuntimeException('DB error during consolidate()'));
+
+        $check->refresh();
+        $this->assertSame(SfFieldCheck::STATUS_VERIFIED, $check->verification_status);
+        $this->assertEqualsWithDelta(0.0123, (float) $check->server_confidence, 0.0001);
+    }
 }

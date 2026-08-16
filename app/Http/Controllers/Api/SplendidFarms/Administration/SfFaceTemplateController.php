@@ -178,8 +178,18 @@ class SfFaceTemplateController extends Controller
             ->where('status', SfEmployeeFaceTemplate::STATUS_ACTIVE)
             ->first();
 
-        if (! $template || ! $template->photo_path || ! Storage::disk('local')->exists($template->photo_path)) {
-            abort(404, 'El empleado no tiene una foto de referencia disponible.');
+        if (! $template) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'El empleado no tiene una foto de referencia disponible.',
+            ], 404);
+        }
+
+        if (! $template->photo_path || ! Storage::disk('local')->exists($template->photo_path)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'El empleado no tiene una foto de referencia disponible.',
+            ], 404);
         }
 
         return Storage::disk('local')->response($template->photo_path, null, [

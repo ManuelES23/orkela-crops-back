@@ -283,8 +283,38 @@ class SfFaceTemplateControllerTest extends TestCase
         [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
 
-        $this->get("/api/splendidfarms/administration/personal/empleados/{$employee->id}/face-template/photo")
-            ->assertStatus(404);
+        // El envelope de error debe ser el estándar del proyecto
+        // ({status, message}), igual que destroy() en este mismo controller —
+        // no el envelope por defecto de Laravel ({message}) que produce
+        // abort(404, ...).
+        $this->getJson("/api/splendidfarms/administration/personal/empleados/{$employee->id}/face-template/photo")
+            ->assertStatus(404)
+            ->assertJsonPath('status', 'error')
+            ->assertJsonPath('message', 'El empleado no tiene una foto de referencia disponible.');
+    }
+
+    public function test_photo_returns_404_with_standard_envelope_when_file_missing_from_disk(): void
+    {
+        Storage::fake('local');
+        $this->fakeNodeService();
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face.jpg', 640, 480),
+            'consent_signed' => '1',
+        ])->assertStatus(201);
+
+        $template = SfEmployeeFaceTemplate::where('sf_employee_id', $employee->id)->firstOrFail();
+        // Simula una plantilla activa cuyo archivo de foto ya no está en disco
+        // (borrado, sync incompleto, almacenamiento corrupto) — mismo caso
+        // que la rama "no se puede verificar" de VerifyFieldCheckJob, pero
+        // aquí lo que se ejercita es que también use el envelope estándar.
+        Storage::disk('local')->delete($template->photo_path);
+
+        $this->getJson("/api/splendidfarms/administration/personal/empleados/{$employee->id}/face-template/photo")
+            ->assertStatus(404)
+            ->assertJsonPath('status', 'error')
+            ->assertJsonPath('message', 'El empleado no tiene una foto de referencia disponible.');
     }
 
     public function test_photo_requires_authentication(): void

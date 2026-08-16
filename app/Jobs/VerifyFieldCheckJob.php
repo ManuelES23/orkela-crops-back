@@ -160,11 +160,17 @@ class VerifyFieldCheckJob implements ShouldQueue
      * Se ejecuta cuando el job agota todos los reintentos ($tries) sin
      * completar exitosamente. Nunca se pierde el evento: el check pasa a
      * revisión humana igual que cualquier otro caso no verificable.
+     *
+     * Solo se degrada el check si todavía está en su estado previo a
+     * verificación (STATUS_PENDING). Si handle() ya avanzó el check más
+     * allá de pending (p. ej. lo dejó 'verified' y luego consolidate()
+     * lanzó una excepción en un intento posterior), degradarlo aquí a
+     * low_confidence tergiversaría lo que realmente pasó.
      */
     public function failed(\Throwable $exception): void
     {
         $check = SfFieldCheck::find($this->fieldCheckId);
-        if ($check) {
+        if ($check && $check->verification_status === SfFieldCheck::STATUS_PENDING) {
             $this->markUnverifiable($check);
         }
     }
