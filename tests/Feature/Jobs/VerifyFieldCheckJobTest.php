@@ -26,11 +26,19 @@ class VerifyFieldCheckJobTest extends TestCase
     private function makeCheck(int $employeeId, int $checkerId, array $overrides = []): SfFieldCheck
     {
         Storage::fake('local');
+
+        // Ensure enterprise_id is provided - if not in overrides, create a default enterprise
+        if (!isset($overrides['enterprise_id'])) {
+            [$tempUser, $tempEnterprise] = $this->createAuthenticatedUserWithEnterprise();
+            $overrides['enterprise_id'] = $tempEnterprise->id;
+        }
+
         $path = 'private/sf-field-checks-evidence/' . uniqid() . '.jpg';
         Storage::disk('local')->put($path, 'fake-jpeg-bytes');
 
         return SfFieldCheck::create(array_merge([
             'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'enterprise_id' => $overrides['enterprise_id'],
             'sf_employee_id' => $employeeId,
             'checked_by_user_id' => $checkerId,
             'type' => SfFieldCheck::TYPE_CHECK_IN,
