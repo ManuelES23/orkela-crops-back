@@ -22,6 +22,7 @@ class SfFieldCheck extends Model
     public const STATUS_REJECTED = 'rejected';
 
     protected $fillable = [
+        'enterprise_id',
         'client_uuid',
         'sf_employee_id',
         'checked_by_user_id',

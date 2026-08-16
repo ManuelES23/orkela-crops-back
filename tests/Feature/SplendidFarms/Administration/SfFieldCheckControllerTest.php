@@ -358,7 +358,7 @@ class SfFieldCheckControllerTest extends TestCase
     {
         [$userA, $enterpriseA] = $this->createAuthenticatedUserWithEnterprise();
         $employeeA = $this->createSfEmployee($enterpriseA->id, ['status' => 'active']);
-        $this->makeCheckDirectly($employeeA->id, $userA->id);
+        $this->makeCheckDirectly($employeeA->id, $userA->id, ['enterprise_id' => $enterpriseA->id]);
         [$userB, $enterpriseB] = $this->createAuthenticatedUserWithEnterprise();
 
         $response = $this->getJson("/api/splendidfarms/administration/personal/field-checks?enterprise_id={$enterpriseA->id}");
@@ -425,8 +425,8 @@ class SfFieldCheckControllerTest extends TestCase
         [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
 
-        $verified = $this->makeCheckDirectly($employee->id, $user->id, ['verification_status' => 'verified']);
-        $mismatch = $this->makeCheckDirectly($employee->id, $user->id, ['verification_status' => 'mismatch']);
+        $verified = $this->makeCheckDirectly($employee->id, $user->id, ['enterprise_id' => $enterprise->id, 'verification_status' => 'verified']);
+        $mismatch = $this->makeCheckDirectly($employee->id, $user->id, ['enterprise_id' => $enterprise->id, 'verification_status' => 'mismatch']);
 
         $response = $this->getJson("/api/splendidfarms/administration/personal/field-checks?enterprise_id={$enterprise->id}&verification_status=mismatch");
 
@@ -436,7 +436,7 @@ class SfFieldCheckControllerTest extends TestCase
         $this->assertFalse($ids->contains($verified->id));
     }
 
-    private function makeCheckDirectly(int $employeeId, int $checkerId, array $overrides = []): \App\Models\SfFieldCheck
+    private function makeCheckDirectly(?int $employeeId, int $checkerId, array $overrides = []): \App\Models\SfFieldCheck
     {
         return \App\Models\SfFieldCheck::create(array_merge([
             'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
@@ -448,5 +448,45 @@ class SfFieldCheckControllerTest extends TestCase
             'verification_status' => 'pending',
             'manual_override' => false,
         ], $overrides));
+    }
+
+    public function test_sync_stores_enterprise_id_even_without_employee_match(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+
+        $uuid = (string) \Illuminate\Support\Str::uuid();
+        $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [
+            'enterprise_id' => $enterprise->id,
+            'checks' => [[
+                'client_uuid' => $uuid,
+                'sf_employee_id' => null,
+                'type' => 'check_in',
+                'checked_at' => now()->toIso8601String(),
+                'device_synced_at' => now()->toIso8601String(),
+                'evidence_photo' => $this->tinyJpegBase64(),
+                'client_confidence' => 0,
+            ]],
+        ])->assertStatus(200);
+
+        $check = \App\Models\SfFieldCheck::where('client_uuid', $uuid)->firstOrFail();
+        $this->assertSame($enterprise->id, $check->enterprise_id);
+        $this->assertNull($check->sf_employee_id);
+    }
+
+    public function test_index_includes_checks_without_employee_match(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $noMatchCheck = $this->makeCheckDirectly(null, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'no_template',
+        ]);
+
+        $response = $this->getJson("/api/splendidfarms/administration/personal/field-checks?enterprise_id={$enterprise->id}");
+
+        $response->assertStatus(200);
+        $ids = collect($response->json('data.data'))->pluck('id');
+        $this->assertTrue($ids->contains($noMatchCheck->id));
     }
 }

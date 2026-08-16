@@ -139,6 +139,7 @@ class SfFieldCheckController extends Controller
             $clockSkewSeconds = abs(now()->diffInSeconds($deviceSyncedAt));
 
             $check = SfFieldCheck::create([
+                'enterprise_id' => $validated['enterprise_id'],
                 'client_uuid' => $item['client_uuid'],
                 'sf_employee_id' => $item['sf_employee_id'] ?? null,
                 'checked_by_user_id' => $request->user()->id,
@@ -180,7 +181,7 @@ class SfFieldCheckController extends Controller
 
         $query = SfFieldCheck::query()
             ->with(['employee:id,enterprise_id,code,first_name,last_name,second_last_name', 'checkedBy:id,name'])
-            ->whereHas('employee', fn ($q) => $q->where('enterprise_id', $validated['enterprise_id']))
+            ->where('enterprise_id', $validated['enterprise_id'])
             ->when($validated['sf_employee_id'] ?? null, fn ($q, $v) => $q->where('sf_employee_id', $v))
             ->when($validated['verification_status'] ?? null, fn ($q, $v) => $q->where('verification_status', $v))
             ->when(($validated['start_date'] ?? null) && ($validated['end_date'] ?? null), fn ($q) => $q->whereBetween('checked_at', [$validated['start_date'], $validated['end_date']]))
