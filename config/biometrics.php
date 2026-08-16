@@ -15,4 +15,12 @@ return [
 
     // Días desde la revocación de una plantilla facial antes de purgar su foto y embedding
     'revoked_template_retention_days' => (int) env('BIOMETRICS_REVOKED_TEMPLATE_RETENTION_DAYS', 30),
+
+    // Minutos que un SfFieldCheck puede quedarse en 'pending' antes de que
+    // biometrics:requeue-stale-checks lo considere atascado y lo re-despache.
+    // Default 60min: la ventana normal de reintento de VerifyFieldCheckJob
+    // (tries=5, backoff 30/60/300/900s) es ~21.5min, así que esto deja margen
+    // de sobra antes de asumir que el job se perdió (worker muerto, cola
+    // vaciada, etc.) en vez de que solo esté reintentando.
+    'stale_pending_requeue_minutes' => (int) env('BIOMETRICS_STALE_PENDING_REQUEUE_MINUTES', 60),
 ];

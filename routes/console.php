@@ -9,3 +9,11 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('biometrics:purge')->dailyAt('03:00');
+
+// Umbral default de 60min (config('biometrics.stale_pending_requeue_minutes'))
+// deja margen de sobra sobre la ventana normal de reintento de
+// VerifyFieldCheckJob (~21.5min) — correrlo cada hora detecta un check
+// atascado en pending poco después de cruzar ese umbral sin sobrecargar
+// la cola con redespachos redundantes de checks que todavía están
+// reintentando normalmente.
+Schedule::command('biometrics:requeue-stale-checks')->hourly();
