@@ -261,4 +261,29 @@ class SfFaceTemplateControllerTest extends TestCase
         $this->assertTrue((bool) $rows->firstWhere('id', $enrolled->id)['has_face_template']);
         $this->assertFalse((bool) $rows->firstWhere('id', $notEnrolled->id)['has_face_template']);
     }
+
+    public function test_photo_returns_binary_for_same_tenant(): void
+    {
+        Storage::fake('local');
+        $this->fakeNodeService();
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $this->postJson($this->enrollUrl($employee->id), [
+            'photo' => UploadedFile::fake()->image('face.jpg', 640, 480),
+            'consent_signed' => '1',
+        ])->assertStatus(201);
+
+        $response = $this->get("/api/splendidfarms/administration/personal/empleados/{$employee->id}/face-template/photo");
+
+        $response->assertStatus(200);
+    }
+
+    public function test_photo_returns_404_without_active_template(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+
+        $this->get("/api/splendidfarms/administration/personal/empleados/{$employee->id}/face-template/photo")
+            ->assertStatus(404);
+    }
 }

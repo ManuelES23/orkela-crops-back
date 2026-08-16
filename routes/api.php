@@ -298,12 +298,14 @@ Route::middleware('auth:sanctum')->group(function () {
                 // Biometría facial (enrolamiento)
                 Route::post('empleados/{sfEmployee}/face-template', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFaceTemplateController::class, 'store']);
                 Route::delete('empleados/{sfEmployee}/face-template', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFaceTemplateController::class, 'destroy']);
+                Route::get('empleados/{sfEmployee}/face-template/photo', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFaceTemplateController::class, 'photo']);
 
                 // Checador de campo (Plan 2)
                 Route::get('field-checks/crew-package', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFieldCheckController::class, 'crewPackage']);
                 Route::post('field-checks/sync', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFieldCheckController::class, 'sync']);
                 Route::get('field-checks', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFieldCheckController::class, 'index']);
                 Route::post('field-checks/{fieldCheck}/review', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFieldCheckController::class, 'review']);
+                Route::get('field-checks/{fieldCheck}/evidence-photo', [App\Http\Controllers\Api\SplendidFarms\Administration\SfFieldCheckController::class, 'evidencePhoto']);
 
                 // Catálogo de grupos salariales (A-Z)
                 Route::get('grupos/list', [App\Http\Controllers\Api\SplendidFarms\Administration\SfPositionGroupController::class, 'list']);

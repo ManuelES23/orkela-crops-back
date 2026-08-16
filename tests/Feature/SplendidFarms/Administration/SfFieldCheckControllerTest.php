@@ -658,4 +658,73 @@ class SfFieldCheckControllerTest extends TestCase
             'sf_employee_id' => $foreignEmployee->id,
         ])->assertStatus(422);
     }
+
+    public function test_evidence_photo_requires_authentication(): void
+    {
+        // No se usa createAuthenticatedUserWithEnterprise() aquí a propósito
+        // (mismo motivo que test_review_requires_authentication): ese helper
+        // deja al usuario autenticado como efecto colateral. Se crean
+        // Enterprise/User "a mano" solo para satisfacer las FKs reales de
+        // sf_field_checks (enterprise_id, checked_by_user_id), sin autenticar
+        // a nadie.
+        $user = \App\Models\User::factory()->create();
+        $enterprise = \App\Models\Enterprise::create([
+            'name' => 'Empresa de Prueba',
+            'slug' => 'test-evidence-photo-auth',
+            'description' => 'Empresa de prueba',
+            'is_active' => true,
+        ]);
+        $check = $this->makeCheckDirectly(null, $user->id, ['enterprise_id' => $enterprise->id, 'verification_status' => 'no_template']);
+        $this->getJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/evidence-photo")
+            ->assertStatus(401);
+    }
+
+    public function test_evidence_photo_returns_binary_for_same_tenant(): void
+    {
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $path = 'private/sf-field-checks-evidence/' . uniqid() . '.jpg';
+        Storage::disk('local')->put($path, 'fake-jpeg-bytes');
+        $check = $this->makeCheckDirectly(null, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'no_template',
+            'evidence_photo_path' => $path,
+        ]);
+
+        $response = $this->get("/api/splendidfarms/administration/personal/field-checks/{$check->id}/evidence-photo");
+
+        $response->assertStatus(200);
+        $this->assertSame('fake-jpeg-bytes', $response->streamedContent());
+    }
+
+    public function test_evidence_photo_rejects_cross_tenant(): void
+    {
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        [$otherUser, $otherEnterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $path = 'private/sf-field-checks-evidence/' . uniqid() . '.jpg';
+        Storage::disk('local')->put($path, 'fake-jpeg-bytes');
+        $check = $this->makeCheckDirectly(null, $otherUser->id, [
+            'enterprise_id' => $otherEnterprise->id,
+            'verification_status' => 'no_template',
+            'evidence_photo_path' => $path,
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->get("/api/splendidfarms/administration/personal/field-checks/{$check->id}/evidence-photo")
+            ->assertStatus(403);
+    }
+
+    public function test_evidence_photo_returns_404_when_already_purged(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $check = $this->makeCheckDirectly(null, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'no_template',
+            'evidence_photo_path' => null,
+        ]);
+
+        $this->get("/api/splendidfarms/administration/personal/field-checks/{$check->id}/evidence-photo")
+            ->assertStatus(404);
+    }
 }

@@ -161,4 +161,29 @@ class SfFaceTemplateController extends Controller
             'data' => null,
         ]);
     }
+
+    /**
+     * Sirve la foto de referencia de la plantilla facial ACTIVA del empleado,
+     * autenticada y scoped a la empresa del empleado.
+     */
+    public function photo(Request $request, SfEmployee $sfEmployee)
+    {
+        abort_unless(
+            $request->user()->activeEnterprises()->where('enterprises.id', $sfEmployee->enterprise_id)->exists(),
+            403,
+            'No tienes acceso a esta empresa'
+        );
+
+        $template = SfEmployeeFaceTemplate::where('sf_employee_id', $sfEmployee->id)
+            ->where('status', SfEmployeeFaceTemplate::STATUS_ACTIVE)
+            ->first();
+
+        if (! $template || ! $template->photo_path || ! Storage::disk('local')->exists($template->photo_path)) {
+            abort(404, 'El empleado no tiene una foto de referencia disponible.');
+        }
+
+        return Storage::disk('local')->response($template->photo_path, null, [
+            'Content-Type' => 'image/jpeg',
+        ]);
+    }
 }

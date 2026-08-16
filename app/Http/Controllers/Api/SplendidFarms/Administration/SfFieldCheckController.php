@@ -269,6 +269,23 @@ class SfFieldCheckController extends Controller
     }
 
     /**
+     * Sirve la foto de evidencia de un chequeo, autenticada y con el mismo
+     * guard de empresa que el resto del módulo. 404 si ya fue purgada.
+     */
+    public function evidencePhoto(Request $request, SfFieldCheck $fieldCheck)
+    {
+        $this->authorizeEnterpriseAccess($request, (int) $fieldCheck->enterprise_id);
+
+        if (! $fieldCheck->evidence_photo_path || ! Storage::disk('local')->exists($fieldCheck->evidence_photo_path)) {
+            abort(404, 'La foto de evidencia ya no está disponible.');
+        }
+
+        return Storage::disk('local')->response($fieldCheck->evidence_photo_path, null, [
+            'Content-Type' => 'image/jpeg',
+        ]);
+    }
+
+    /**
      * Verifica que el usuario autenticado pertenece a la empresa solicitada.
      *
      * User::hasEnterpriseAccess() existe pero recibe un slug (string), no un id
