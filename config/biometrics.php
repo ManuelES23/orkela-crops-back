@@ -9,4 +9,10 @@ return [
 
     // Ventana en minutos para considerar dos chequeos del mismo empleado+tipo como duplicado
     'duplicate_collapse_minutes' => (int) env('BIOMETRICS_DUPLICATE_COLLAPSE_MINUTES', 5),
+
+    // Días de retención de la foto de evidencia de un chequeo ya resuelto (verified/manually_approved/rejected) antes de purgarla
+    'evidence_retention_days' => (int) env('BIOMETRICS_EVIDENCE_RETENTION_DAYS', 90),
+
+    // Días desde la revocación de una plantilla facial antes de purgar su foto y embedding
+    'revoked_template_retention_days' => (int) env('BIOMETRICS_REVOKED_TEMPLATE_RETENTION_DAYS', 30),
 ];
