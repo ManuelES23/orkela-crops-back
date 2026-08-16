@@ -376,8 +376,12 @@ class VerifyFieldCheckJobTest extends TestCase
 
         $check = $this->makeCheck($employee->id, $user->id);
 
-        $this->expectException(\App\Exceptions\FaceRecognitionException::class);
-        (new VerifyFieldCheckJob($check->id))->handle();
+        try {
+            (new VerifyFieldCheckJob($check->id))->handle();
+            $this->fail('Expected FaceRecognitionException to be thrown.');
+        } catch (\App\Exceptions\FaceRecognitionException $e) {
+            // expected
+        }
 
         $check->refresh();
         $this->assertSame(SfFieldCheck::STATUS_PENDING, $check->verification_status);
