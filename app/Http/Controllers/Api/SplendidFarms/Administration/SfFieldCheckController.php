@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\VerifyFieldCheckJob;
 use App\Models\SfEmployee;
 use App\Models\SfFieldCheck;
+use App\Services\AttendanceConsolidationService;
 use App\Services\ThumbnailService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -17,8 +18,10 @@ class SfFieldCheckController extends Controller
 {
     private const CURRENT_MODEL_VERSION = 'faceapi-v1';
 
-    public function __construct(private readonly ThumbnailService $thumbnailService)
-    {
+    public function __construct(
+        private readonly ThumbnailService $thumbnailService,
+        private readonly AttendanceConsolidationService $consolidationService,
+    ) {
     }
 
     /**
@@ -190,6 +193,78 @@ class SfFieldCheckController extends Controller
         return response()->json([
             'success' => true,
             'data' => $query->paginate((int) $request->get('per_page', 50)),
+        ]);
+    }
+
+    /**
+     * RH aprueba o rechaza un chequeo pendiente de revisión humana
+     * (low_confidence | mismatch | no_template). Aprobar puede reasignar el
+     * empleado (obligatorio si el check no trae uno) y consolida en
+     * sf_attendance_records. Rechazar es terminal, nunca consolida.
+     */
+    public function review(Request $request, SfFieldCheck $fieldCheck): JsonResponse
+    {
+        $validated = $request->validate([
+            'decision' => 'required|in:approve,reject',
+            'sf_employee_id' => [
+                'nullable',
+                Rule::exists('sf_employees', 'id')->where(
+                    fn ($query) => $query->where('enterprise_id', $fieldCheck->enterprise_id)
+                ),
+            ],
+        ]);
+
+        $this->authorizeEnterpriseAccess($request, (int) $fieldCheck->enterprise_id);
+
+        $reviewableStatuses = [
+            SfFieldCheck::STATUS_LOW_CONFIDENCE,
+            SfFieldCheck::STATUS_MISMATCH,
+            SfFieldCheck::STATUS_NO_TEMPLATE,
+        ];
+        abort_unless(
+            in_array($fieldCheck->verification_status, $reviewableStatuses, true),
+            422,
+            'Este chequeo ya fue resuelto o aún no ha sido procesado.'
+        );
+
+        if ($validated['decision'] === 'reject') {
+            $fieldCheck->update([
+                'verification_status' => SfFieldCheck::STATUS_REJECTED,
+                'reviewed_by_user_id' => $request->user()->id,
+                'reviewed_at' => now(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Chequeo rechazado',
+                'data' => $fieldCheck->fresh(),
+            ]);
+        }
+
+        // approve: sfEmployeeId (si viene) siempre reemplaza el empleado
+        // actual del check — necesario para 'mismatch' (el empleado que trae
+        // hoy es justo el que el servidor determinó que NO coincide) y para
+        // 'no_template' (no trae ninguno).
+        $employeeId = $validated['sf_employee_id'] ?? $fieldCheck->sf_employee_id;
+        abort_if(
+            $employeeId === null,
+            422,
+            'Debes asignar un empleado antes de aprobar un chequeo sin coincidencia.'
+        );
+
+        $fieldCheck->update([
+            'sf_employee_id' => $employeeId,
+            'verification_status' => SfFieldCheck::STATUS_MANUALLY_APPROVED,
+            'reviewed_by_user_id' => $request->user()->id,
+            'reviewed_at' => now(),
+        ]);
+
+        $this->consolidationService->consolidate($fieldCheck->fresh());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Chequeo aprobado',
+            'data' => $fieldCheck->fresh(),
         ]);
     }
 

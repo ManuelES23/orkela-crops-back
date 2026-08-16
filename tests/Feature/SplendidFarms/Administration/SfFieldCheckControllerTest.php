@@ -8,6 +8,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesSfPersonalFixtures;
 use Tests\TestCase;
 
@@ -488,5 +489,173 @@ class SfFieldCheckControllerTest extends TestCase
         $response->assertStatus(200);
         $ids = collect($response->json('data.data'))->pluck('id');
         $this->assertTrue($ids->contains($noMatchCheck->id));
+    }
+
+    public function test_review_requires_authentication(): void
+    {
+        // No se usa createAuthenticatedUserWithEnterprise() aquí a propósito:
+        // ese helper deja al usuario autenticado (Sanctum::actingAs) como
+        // efecto colateral, lo que invalidaría el propósito de este test. Se
+        // crean Enterprise/User "a mano" solo para satisfacer las FKs reales
+        // de sf_field_checks (enterprise_id, checked_by_user_id — agregadas
+        // en la migración de Task 1), sin autenticar a nadie.
+        $user = \App\Models\User::factory()->create();
+        $enterprise = \App\Models\Enterprise::create([
+            'name' => 'Empresa de Prueba',
+            'slug' => 'test-review-auth',
+            'description' => 'Empresa de prueba',
+            'is_active' => true,
+        ]);
+        $check = $this->makeCheckDirectly(null, $user->id, ['enterprise_id' => $enterprise->id, 'verification_status' => 'no_template']);
+        $this->postJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/review", ['decision' => 'approve'])
+            ->assertStatus(401);
+    }
+
+    public function test_review_rejects_check_from_another_enterprise(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        [$otherUser, $otherEnterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($otherEnterprise->id, ['status' => 'active']);
+        $check = $this->makeCheckDirectly($employee->id, $otherUser->id, [
+            'enterprise_id' => $otherEnterprise->id,
+            'verification_status' => 'mismatch',
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->postJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/review", ['decision' => 'approve'])
+            ->assertStatus(403);
+    }
+
+    public function test_review_approves_with_already_assigned_employee_and_consolidates(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $checkedAt = now()->setTime(8, 0);
+        $check = $this->makeCheckDirectly($employee->id, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'low_confidence',
+            'type' => 'check_in',
+            'checked_at' => $checkedAt,
+        ]);
+
+        $response = $this->postJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/review", [
+            'decision' => 'approve',
+        ]);
+
+        $response->assertStatus(200);
+        $check->refresh();
+        $this->assertSame('manually_approved', $check->verification_status);
+        $this->assertSame($user->id, $check->reviewed_by_user_id);
+        $this->assertNotNull($check->reviewed_at);
+
+        $record = \App\Models\SfAttendanceRecord::where('sf_employee_id', $employee->id)
+            ->where('date', $checkedAt->toDateString())
+            ->first();
+        $this->assertNotNull($record);
+        $this->assertNotNull($record->check_in);
+    }
+
+    public function test_review_approves_no_template_check_with_assigned_employee(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $check = $this->makeCheckDirectly(null, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'no_template',
+        ]);
+
+        $response = $this->postJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/review", [
+            'decision' => 'approve',
+            'sf_employee_id' => $employee->id,
+        ]);
+
+        $response->assertStatus(200);
+        $check->refresh();
+        $this->assertSame($employee->id, $check->sf_employee_id);
+        $this->assertSame('manually_approved', $check->verification_status);
+    }
+
+    public function test_review_reassigns_employee_on_mismatch(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $wrongEmployee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $correctEmployee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $check = $this->makeCheckDirectly($wrongEmployee->id, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'mismatch',
+        ]);
+
+        $response = $this->postJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/review", [
+            'decision' => 'approve',
+            'sf_employee_id' => $correctEmployee->id,
+        ]);
+
+        $response->assertStatus(200);
+        $check->refresh();
+        $this->assertSame($correctEmployee->id, $check->sf_employee_id);
+        $this->assertSame('manually_approved', $check->verification_status);
+    }
+
+    public function test_review_approve_without_employee_and_without_assignment_fails(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $check = $this->makeCheckDirectly(null, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'no_template',
+        ]);
+
+        $this->postJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/review", [
+            'decision' => 'approve',
+        ])->assertStatus(422);
+    }
+
+    public function test_review_rejects_never_consolidates(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $check = $this->makeCheckDirectly($employee->id, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'low_confidence',
+        ]);
+
+        $response = $this->postJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/review", [
+            'decision' => 'reject',
+        ]);
+
+        $response->assertStatus(200);
+        $check->refresh();
+        $this->assertSame('rejected', $check->verification_status);
+        $this->assertDatabaseCount('sf_attendance_records', 0);
+    }
+
+    public function test_review_on_already_resolved_check_fails(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $check = $this->makeCheckDirectly($employee->id, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'verified',
+        ]);
+
+        $this->postJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/review", [
+            'decision' => 'approve',
+        ])->assertStatus(422);
+    }
+
+    public function test_review_rejects_employee_assignment_from_another_enterprise(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        [, $otherEnterprise] = $this->createAuthenticatedUserWithEnterprise();
+        Sanctum::actingAs($user);
+        $foreignEmployee = $this->createSfEmployee($otherEnterprise->id, ['status' => 'active']);
+        $check = $this->makeCheckDirectly(null, $user->id, [
+            'enterprise_id' => $enterprise->id,
+            'verification_status' => 'no_template',
+        ]);
+
+        $this->postJson("/api/splendidfarms/administration/personal/field-checks/{$check->id}/review", [
+            'decision' => 'approve',
+            'sf_employee_id' => $foreignEmployee->id,
+        ])->assertStatus(422);
     }
 }

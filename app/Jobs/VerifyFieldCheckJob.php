@@ -3,9 +3,9 @@
 namespace App\Jobs;
 
 use App\Exceptions\FaceRecognitionException;
-use App\Models\SfAttendanceRecord;
 use App\Models\SfEmployeeFaceTemplate;
 use App\Models\SfFieldCheck;
+use App\Services\AttendanceConsolidationService;
 use App\Services\FaceMatchingService;
 use App\Services\FaceRecognitionService;
 use Illuminate\Bus\Queueable;
@@ -13,7 +13,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class VerifyFieldCheckJob implements ShouldQueue
@@ -122,7 +121,7 @@ class VerifyFieldCheckJob implements ShouldQueue
             'server_confidence' => $clampedDistance,
         ]);
 
-        $this->consolidateAttendance($check);
+        app(AttendanceConsolidationService::class)->consolidate($check);
     }
 
     /**
@@ -136,69 +135,5 @@ class VerifyFieldCheckJob implements ShouldQueue
             'verification_status' => SfFieldCheck::STATUS_LOW_CONFIDENCE,
             'server_confidence' => null,
         ]);
-    }
-
-    /**
-     * Recalcula el registro de asistencia del día a partir de TODOS los chequeos verificados
-     * de ese empleado en esa fecha (idempotente sin importar el orden de procesamiento).
-     */
-    private function consolidateAttendance(SfFieldCheck $check): void
-    {
-        $date = $check->checked_at->toDateString();
-
-        $verifiedChecks = SfFieldCheck::where('sf_employee_id', $check->sf_employee_id)
-            ->where('verification_status', SfFieldCheck::STATUS_VERIFIED)
-            ->whereDate('checked_at', $date)
-            ->get();
-
-        $checkIn = $verifiedChecks->where('type', SfFieldCheck::TYPE_CHECK_IN)->min('checked_at');
-        $checkOut = $verifiedChecks->where('type', SfFieldCheck::TYPE_CHECK_OUT)->max('checked_at');
-
-        $existingRecord = SfAttendanceRecord::where('sf_employee_id', $check->sf_employee_id)
-            ->where('date', $date)
-            ->first();
-
-        $payload = [
-            'source_device' => 'field_biometric',
-        ];
-
-        // No degradar una clasificación de RH ("el empleado no vino": absent,
-        // sick_leave, holiday, half_day...) solo porque un chequeo biométrico
-        // se verificó ese mismo día. Solo se fija/mantiene 'present' cuando no
-        // hay registro previo, o cuando el registro existente ya estaba en un
-        // estado "sí vino" (present/late) — de lo contrario se conserva el
-        // status actual tal cual.
-        if (! $existingRecord || in_array($existingRecord->status, ['present', 'late'], true)) {
-            $payload['status'] = 'present';
-        }
-
-        if ($checkIn) {
-            $payload['check_in'] = $checkIn;
-        }
-        if ($checkOut) {
-            $payload['check_out'] = $checkOut;
-        }
-        if ($checkIn && $checkOut && $checkOut > $checkIn) {
-            $payload['hours_worked'] = round($checkIn->diffInMinutes($checkOut) / 60, 2);
-        }
-
-        $record = SfAttendanceRecord::updateOrCreate(
-            ['sf_employee_id' => $check->sf_employee_id, 'date' => $date],
-            $payload
-        );
-
-        // El cast 'date' del modelo solo trunca la hora al *leer* el
-        // atributo; al *escribir*, Eloquent siempre serializa con
-        // getDateFormat() ('Y-m-d H:i:s'), así que la fila queda guardada
-        // como "2026-08-15 00:00:00". En MySQL (producción) la columna DATE
-        // descarta la hora al insertar, así que esto es invisible ahí; en
-        // SQLite (tests) no se trunca, por lo que sin este ajuste una
-        // corrida posterior de updateOrCreate() con la misma fecha no
-        // encontraría la fila (comparación de string exacta contra
-        // "AAAA-MM-DD 00:00:00" vs "AAAA-MM-DD") y terminaría intentando
-        // insertar un duplicado que choca con el índice único
-        // (sf_employee_id, date). Normalizamos la columna cruda para que la
-        // consolidación sea idempotente sin importar el motor de BD.
-        DB::table('sf_attendance_records')->where('id', $record->id)->update(['date' => $date]);
     }
 }
