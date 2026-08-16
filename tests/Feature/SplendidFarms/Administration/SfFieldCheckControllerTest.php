@@ -132,6 +132,7 @@ class SfFieldCheckControllerTest extends TestCase
                 'sf_employee_id' => $employee->id,
                 'type' => 'check_in',
                 'checked_at' => now()->toIso8601String(),
+                'device_synced_at' => now()->toIso8601String(),
                 'evidence_photo' => $this->tinyJpegBase64(),
                 'client_confidence' => 0.12,
                 'manual_override' => false,
@@ -159,6 +160,7 @@ class SfFieldCheckControllerTest extends TestCase
                 'sf_employee_id' => $employee->id,
                 'type' => 'check_in',
                 'checked_at' => now()->toIso8601String(),
+                'device_synced_at' => now()->toIso8601String(),
                 'evidence_photo' => $this->tinyJpegBase64(),
                 'client_confidence' => 0.1,
             ]],
@@ -186,6 +188,7 @@ class SfFieldCheckControllerTest extends TestCase
                 'sf_employee_id' => null,
                 'type' => 'check_in',
                 'checked_at' => now()->toIso8601String(),
+                'device_synced_at' => now()->toIso8601String(),
                 'evidence_photo' => $this->tinyJpegBase64(),
                 'client_confidence' => 0,
             ]],
@@ -198,7 +201,13 @@ class SfFieldCheckControllerTest extends TestCase
         $this->assertSame(\App\Models\SfFieldCheck::STATUS_PENDING, $check->verification_status);
     }
 
-    public function test_sync_computes_clock_skew(): void
+    /**
+     * Un dispositivo que estuvo offline 3 horas (checked_at viejo) pero cuyo
+     * reloj está correcto (device_synced_at = ahora) NO debe penalizarse con
+     * clock_skew_seconds grande — eso es exactamente el caso de uso que la
+     * cola offline existe para soportar. checked_at != clock skew.
+     */
+    public function test_sync_computes_clock_skew_from_device_synced_at_not_checked_at(): void
     {
         Queue::fake();
         Storage::fake('local');
@@ -207,7 +216,10 @@ class SfFieldCheckControllerTest extends TestCase
         $this->enrollEmployee($employee->id);
 
         $uuid = (string) \Illuminate\Support\Str::uuid();
-        $skewedTime = now()->subMinutes(45)->toIso8601String();
+        // Captura offline hace 3 horas...
+        $offlineCapturedAt = now()->subHours(3)->toIso8601String();
+        // ...pero el reloj del dispositivo está correcto justo al sincronizar.
+        $currentDeviceClock = now()->toIso8601String();
 
         $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [
             'enterprise_id' => $enterprise->id,
@@ -215,14 +227,56 @@ class SfFieldCheckControllerTest extends TestCase
                 'client_uuid' => $uuid,
                 'sf_employee_id' => $employee->id,
                 'type' => 'check_in',
-                'checked_at' => $skewedTime,
+                'checked_at' => $offlineCapturedAt,
+                'device_synced_at' => $currentDeviceClock,
                 'evidence_photo' => $this->tinyJpegBase64(),
                 'client_confidence' => 0.1,
             ]],
         ])->assertStatus(200);
 
         $check = \App\Models\SfFieldCheck::where('client_uuid', $uuid)->firstOrFail();
-        $this->assertGreaterThanOrEqual(2600, $check->clock_skew_seconds); // ~45 min en segundos, con margen
+        // clock_skew_seconds debe ser chico (reloj correcto), aunque checked_at
+        // esté horas en el pasado.
+        $this->assertLessThan(60, $check->clock_skew_seconds);
+        // checked_at se guarda intacto como el timestamp real de asistencia.
+        $this->assertEqualsWithDelta(
+            \Carbon\Carbon::parse($offlineCapturedAt)->timestamp,
+            $check->checked_at->timestamp,
+            2
+        );
+    }
+
+    /**
+     * Un dispositivo con el reloj genuinamente mal puesto (device_synced_at
+     * muy distinto de la hora real del servidor) SÍ debe producir un
+     * clock_skew_seconds grande, sin importar qué tan reciente sea checked_at.
+     */
+    public function test_sync_detects_genuine_device_clock_skew(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $this->enrollEmployee($employee->id);
+
+        $uuid = (string) \Illuminate\Support\Str::uuid();
+        $wrongDeviceClock = now()->addHours(2)->toIso8601String();
+
+        $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [
+            'enterprise_id' => $enterprise->id,
+            'checks' => [[
+                'client_uuid' => $uuid,
+                'sf_employee_id' => $employee->id,
+                'type' => 'check_in',
+                'checked_at' => now()->toIso8601String(),
+                'device_synced_at' => $wrongDeviceClock,
+                'evidence_photo' => $this->tinyJpegBase64(),
+                'client_confidence' => 0.1,
+            ]],
+        ])->assertStatus(200);
+
+        $check = \App\Models\SfFieldCheck::where('client_uuid', $uuid)->firstOrFail();
+        $this->assertGreaterThanOrEqual(7000, $check->clock_skew_seconds); // ~2 horas en segundos, con margen
     }
 
     public function test_sync_rejects_employee_from_a_different_enterprise(): void
@@ -241,6 +295,7 @@ class SfFieldCheckControllerTest extends TestCase
                 'sf_employee_id' => $otherEmployee->id,
                 'type' => 'check_in',
                 'checked_at' => now()->toIso8601String(),
+                'device_synced_at' => now()->toIso8601String(),
                 'evidence_photo' => $this->tinyJpegBase64(),
                 'client_confidence' => 0.1,
             ]],
@@ -248,6 +303,115 @@ class SfFieldCheckControllerTest extends TestCase
 
         $response->assertStatus(422);
         $this->assertDatabaseMissing('sf_field_checks', ['client_uuid' => $uuid]);
+    }
+
+    // ------------------------------------------------------------------
+    // Autorización multi-tenant: un usuario autenticado de la Empresa A no
+    // debe poder leer/escribir datos de la Empresa B solo por mandar su
+    // enterprise_id en el request. Sigue el patrón de fixture de dos
+    // empresas de test_crew_package_excludes_other_enterprises, pero fija
+    // explícitamente cuál usuario queda "actingAs" para no depender del
+    // efecto colateral de la segunda llamada a createAuthenticatedUserWithEnterprise().
+    // ------------------------------------------------------------------
+
+    public function test_crew_package_rejects_enterprise_the_user_does_not_belong_to(): void
+    {
+        Storage::fake('local');
+        [$userA, $enterpriseA] = $this->createAuthenticatedUserWithEnterprise();
+        // La segunda llamada re-loguea (Sanctum::actingAs) al usuario de la
+        // empresa B: el acting user termina siendo $userB, miembro solo de
+        // $enterpriseB.
+        [$userB, $enterpriseB] = $this->createAuthenticatedUserWithEnterprise();
+
+        $response = $this->getJson("/api/splendidfarms/administration/personal/field-checks/crew-package?enterprise_id={$enterpriseA->id}");
+
+        $response->assertStatus(403);
+    }
+
+    public function test_sync_rejects_enterprise_the_user_does_not_belong_to(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$userA, $enterpriseA] = $this->createAuthenticatedUserWithEnterprise();
+        $employeeA = $this->createSfEmployee($enterpriseA->id, ['status' => 'active']);
+        [$userB, $enterpriseB] = $this->createAuthenticatedUserWithEnterprise();
+
+        $uuid = (string) \Illuminate\Support\Str::uuid();
+        $response = $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [
+            'enterprise_id' => $enterpriseA->id,
+            'checks' => [[
+                'client_uuid' => $uuid,
+                'sf_employee_id' => $employeeA->id,
+                'type' => 'check_in',
+                'checked_at' => now()->toIso8601String(),
+                'device_synced_at' => now()->toIso8601String(),
+                'evidence_photo' => $this->tinyJpegBase64(),
+                'client_confidence' => 0.1,
+            ]],
+        ]);
+
+        $response->assertStatus(403);
+        $this->assertDatabaseMissing('sf_field_checks', ['client_uuid' => $uuid]);
+    }
+
+    public function test_index_rejects_enterprise_the_user_does_not_belong_to(): void
+    {
+        [$userA, $enterpriseA] = $this->createAuthenticatedUserWithEnterprise();
+        $employeeA = $this->createSfEmployee($enterpriseA->id, ['status' => 'active']);
+        $this->makeCheckDirectly($employeeA->id, $userA->id);
+        [$userB, $enterpriseB] = $this->createAuthenticatedUserWithEnterprise();
+
+        $response = $this->getJson("/api/splendidfarms/administration/personal/field-checks?enterprise_id={$enterpriseA->id}");
+
+        $response->assertStatus(403);
+    }
+
+    public function test_sync_rejects_out_of_range_client_confidence_without_failing_whole_batch(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $this->enrollEmployee($employee->id);
+
+        $badUuid = (string) \Illuminate\Support\Str::uuid();
+        $goodUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $response = $this->postJson('/api/splendidfarms/administration/personal/field-checks/sync', [
+            'enterprise_id' => $enterprise->id,
+            'checks' => [
+                [
+                    'client_uuid' => $badUuid,
+                    'sf_employee_id' => $employee->id,
+                    'type' => 'check_in',
+                    'checked_at' => now()->toIso8601String(),
+                    'device_synced_at' => now()->toIso8601String(),
+                    'evidence_photo' => $this->tinyJpegBase64(),
+                    // decimal(5,4) solo llega hasta 9.9999 — este valor desbordaría la columna.
+                    'client_confidence' => 42.5,
+                ],
+                [
+                    'client_uuid' => $goodUuid,
+                    'sf_employee_id' => $employee->id,
+                    'type' => 'check_out',
+                    'checked_at' => now()->toIso8601String(),
+                    'device_synced_at' => now()->toIso8601String(),
+                    'evidence_photo' => $this->tinyJpegBase64(),
+                    'client_confidence' => 0.2,
+                ],
+            ],
+        ]);
+
+        // Nunca un 500: la validación de rango pasa a nivel de item, no de request completo.
+        $response->assertStatus(200);
+
+        $results = collect($response->json('data.results'));
+        $this->assertSame('rejected', $results->firstWhere('client_uuid', $badUuid)['status']);
+        $this->assertSame('accepted', $results->firstWhere('client_uuid', $goodUuid)['status']);
+
+        $this->assertDatabaseMissing('sf_field_checks', ['client_uuid' => $badUuid]);
+        $this->assertDatabaseHas('sf_field_checks', ['client_uuid' => $goodUuid]);
+        Queue::assertPushed(\App\Jobs\VerifyFieldCheckJob::class, 1);
     }
 
     public function test_index_requires_authentication(): void

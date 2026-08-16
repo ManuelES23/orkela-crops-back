@@ -34,6 +34,17 @@ trait CreatesSfPersonalFixtures
             'is_active' => true,
         ], $enterpriseOverrides));
 
+        // Sin esta fila en el pivot user_enterprises, User::hasEnterpriseAccess()/
+        // activeEnterprises() (usado por el guard de autorización de los
+        // endpoints de Plan 2) nunca vería a este usuario como miembro de la
+        // empresa que él mismo acaba de crear, y todos los tests "felices"
+        // recibirían 403 en vez del código de estado que en realidad prueban.
+        $user->enterprises()->attach($enterprise->id, [
+            'role' => 'admin',
+            'is_active' => true,
+            'granted_at' => now(),
+        ]);
+
         Sanctum::actingAs($user);
 
         return [$user, $enterprise];
