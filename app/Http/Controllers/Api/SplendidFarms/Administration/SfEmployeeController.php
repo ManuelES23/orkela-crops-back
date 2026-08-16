@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\SplendidFarms\Administration;
 
 use App\Http\Controllers\Controller;
 use App\Models\SfEmployee;
+use App\Models\SfEmployeeFaceTemplate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -124,6 +125,22 @@ class SfEmployeeController extends Controller
      */
     public function destroy(SfEmployee $sfEmployee): JsonResponse
     {
+        // La baja de un empleado revoca su plantilla facial activa (si tiene)
+        // como parte del ciclo de vida del dato biométrico — spec §6: "Baja
+        // de empleado → plantilla revoked". Se carga el modelo primero
+        // (en vez de un ->update() masivo sobre la query) para que el
+        // trait Loggable dispare su evento updated() y la revocación quede
+        // auditada en activity_logs — spec §8 lo exige explícitamente. El
+        // costo de la consulta extra es insignificante en el volumen de
+        // este endpoint.
+        $activeTemplate = SfEmployeeFaceTemplate::where('sf_employee_id', $sfEmployee->id)
+            ->where('status', SfEmployeeFaceTemplate::STATUS_ACTIVE)
+            ->first();
+        $activeTemplate?->update([
+            'status' => SfEmployeeFaceTemplate::STATUS_REVOKED,
+            'revoked_at' => now(),
+        ]);
+
         $sfEmployee->delete();
 
         return response()->json([
