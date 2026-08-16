@@ -358,4 +358,65 @@ class VerifyFieldCheckJobTest extends TestCase
         $this->assertNull($check->server_confidence);
         $this->assertDatabaseCount('sf_attendance_records', 0);
     }
+
+    public function test_service_unavailable_is_not_caught_and_propagates_for_retry(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        SfEmployeeFaceTemplate::create([
+            'sf_employee_id' => $employee->id,
+            'embedding' => array_fill(0, 128, 0.2),
+            'photo_path' => 'private/sf-face-templates/x.jpg',
+            'model_version' => 'faceapi-v1',
+            'enrolled_at' => now(),
+            'consent_signed_at' => now(),
+            'status' => SfEmployeeFaceTemplate::STATUS_ACTIVE,
+        ]);
+        Http::fake(['*/embed' => Http::response(null, 500)]);
+
+        $check = $this->makeCheck($employee->id, $user->id);
+
+        $this->expectException(\App\Exceptions\FaceRecognitionException::class);
+        (new VerifyFieldCheckJob($check->id))->handle();
+
+        $check->refresh();
+        $this->assertSame(SfFieldCheck::STATUS_PENDING, $check->verification_status);
+    }
+
+    public function test_no_face_detected_still_marks_low_confidence_without_retry(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        SfEmployeeFaceTemplate::create([
+            'sf_employee_id' => $employee->id,
+            'embedding' => array_fill(0, 128, 0.2),
+            'photo_path' => 'private/sf-face-templates/x.jpg',
+            'model_version' => 'faceapi-v1',
+            'enrolled_at' => now(),
+            'consent_signed_at' => now(),
+            'status' => SfEmployeeFaceTemplate::STATUS_ACTIVE,
+        ]);
+        Http::fake(['*/embed' => Http::response(['error' => 'no_face'], 422)]);
+
+        $check = $this->makeCheck($employee->id, $user->id);
+
+        (new VerifyFieldCheckJob($check->id))->handle();
+
+        $check->refresh();
+        $this->assertSame(SfFieldCheck::STATUS_LOW_CONFIDENCE, $check->verification_status);
+    }
+
+    public function test_failed_callback_marks_check_low_confidence_after_retries_exhausted(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $check = $this->makeCheck($employee->id, $user->id);
+
+        $job = new VerifyFieldCheckJob($check->id);
+        $job->failed(new \App\Exceptions\FaceRecognitionException('service_unavailable'));
+
+        $check->refresh();
+        $this->assertSame(SfFieldCheck::STATUS_LOW_CONFIDENCE, $check->verification_status);
+        $this->assertNull($check->server_confidence);
+    }
 }

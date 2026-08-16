@@ -19,6 +19,13 @@ class VerifyFieldCheckJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $tries = 5;
+
+    public function backoff(): array
+    {
+        return [30, 60, 300, 900];
+    }
+
     public function __construct(public readonly int $fieldCheckId)
     {
     }
@@ -69,11 +76,23 @@ class VerifyFieldCheckJob implements ShouldQueue
             return;
         }
 
+        $photoContents = Storage::disk('local')->get($check->evidence_photo_path);
+
         try {
-            $photoContents = Storage::disk('local')->get($check->evidence_photo_path);
             $result = $faceService->embed($photoContents);
         } catch (FaceRecognitionException $e) {
-            // No se pudo procesar la foto (sin rostro, servicio caído, etc.) — no se pierde el evento, va a revisión.
+            if ($e->getReason() === 'service_unavailable') {
+                // Falla transitoria (servicio caído, timeout, HTTP no-2xx) —
+                // se relanza para que el mecanismo de reintento de la cola
+                // actúe (ver $tries/backoff() arriba). Solo si se agotan los
+                // reintentos, failed() abajo marca el check como no
+                // verificable. Reintentar aquí NO cambia el resultado para
+                // 'no_face'/'multiple_faces'/'invalid_response' (el problema
+                // está en la foto, no en el servicio) — esos casos siguen
+                // yendo directo a revisión sin reintentar.
+                throw $e;
+            }
+
             $this->markUnverifiable($check);
             return;
         }
@@ -135,5 +154,18 @@ class VerifyFieldCheckJob implements ShouldQueue
             'verification_status' => SfFieldCheck::STATUS_LOW_CONFIDENCE,
             'server_confidence' => null,
         ]);
+    }
+
+    /**
+     * Se ejecuta cuando el job agota todos los reintentos ($tries) sin
+     * completar exitosamente. Nunca se pierde el evento: el check pasa a
+     * revisión humana igual que cualquier otro caso no verificable.
+     */
+    public function failed(\Throwable $exception): void
+    {
+        $check = SfFieldCheck::find($this->fieldCheckId);
+        if ($check) {
+            $this->markUnverifiable($check);
+        }
     }
 }
