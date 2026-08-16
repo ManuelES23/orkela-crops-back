@@ -73,12 +73,24 @@ class VerifyFieldCheckJob implements ShouldQueue
         try {
             $photoContents = Storage::disk('local')->get($check->evidence_photo_path);
             $result = $faceService->embed($photoContents);
-            $distance = $matchService->euclideanDistance($result['embedding'], $template->embedding);
         } catch (FaceRecognitionException $e) {
             // No se pudo procesar la foto (sin rostro, servicio caído, etc.) — no se pierde el evento, va a revisión.
             $this->markUnverifiable($check);
             return;
         }
+
+        // El embedding recién generado y el de la plantilla enrolada deben venir del
+        // mismo modelo — comparar distancias entre embeddings de modelos distintos
+        // no es matemáticamente significativo (espacios vectoriales incompatibles).
+        // Falla cerrado: un desfase de model_version nunca debe poder producir un
+        // falso-verificado, solo enrutar a revisión humana como cualquier otro caso
+        // no verificable (spec §12).
+        if ($result['model_version'] !== $template->model_version) {
+            $this->markUnverifiable($check);
+            return;
+        }
+
+        $distance = $matchService->euclideanDistance($result['embedding'], $template->embedding);
 
         $skewToleranceSeconds = ((int) config('biometrics.clock_skew_tolerance_minutes')) * 60;
         $clockSkewOk = ($check->clock_skew_seconds ?? 0) <= $skewToleranceSeconds;
@@ -142,10 +154,23 @@ class VerifyFieldCheckJob implements ShouldQueue
         $checkIn = $verifiedChecks->where('type', SfFieldCheck::TYPE_CHECK_IN)->min('checked_at');
         $checkOut = $verifiedChecks->where('type', SfFieldCheck::TYPE_CHECK_OUT)->max('checked_at');
 
+        $existingRecord = SfAttendanceRecord::where('sf_employee_id', $check->sf_employee_id)
+            ->where('date', $date)
+            ->first();
+
         $payload = [
-            'status' => 'present',
             'source_device' => 'field_biometric',
         ];
+
+        // No degradar una clasificación de RH ("el empleado no vino": absent,
+        // sick_leave, holiday, half_day...) solo porque un chequeo biométrico
+        // se verificó ese mismo día. Solo se fija/mantiene 'present' cuando no
+        // hay registro previo, o cuando el registro existente ya estaba en un
+        // estado "sí vino" (present/late) — de lo contrario se conserva el
+        // status actual tal cual.
+        if (! $existingRecord || in_array($existingRecord->status, ['present', 'late'], true)) {
+            $payload['status'] = 'present';
+        }
 
         if ($checkIn) {
             $payload['check_in'] = $checkIn;

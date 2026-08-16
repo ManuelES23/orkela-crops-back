@@ -176,6 +176,92 @@ class VerifyFieldCheckJobTest extends TestCase
         $this->assertDatabaseCount('sf_attendance_records', 0);
     }
 
+    public function test_model_version_mismatch_routes_to_low_confidence(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $embedding = array_fill(0, 128, 0.2);
+        // Plantilla enrolada con el modelo actual...
+        SfEmployeeFaceTemplate::create([
+            'sf_employee_id' => $employee->id,
+            'embedding' => $embedding,
+            'photo_path' => 'private/sf-face-templates/x.jpg',
+            'model_version' => 'faceapi-v1',
+            'enrolled_at' => now(),
+            'consent_signed_at' => now(),
+            'status' => SfEmployeeFaceTemplate::STATUS_ACTIVE,
+        ]);
+        // ...pero el face-service (ya actualizado) responde con un embedding de
+        // un modelo distinto. Comparar distancias entre modelos incompatibles
+        // no es válido: debe enrutarse a revisión, nunca compararse ni
+        // auto-verificarse, aunque el embedding en bruto coincida byte a byte.
+        Http::fake([
+            '*/embed' => Http::response(['embedding' => $embedding, 'model_version' => 'faceapi-v2'], 200),
+        ]);
+
+        $check = $this->makeCheck($employee->id, $user->id);
+
+        (new VerifyFieldCheckJob($check->id))->handle();
+
+        $check->refresh();
+        $this->assertSame(SfFieldCheck::STATUS_LOW_CONFIDENCE, $check->verification_status);
+        $this->assertNull($check->server_confidence);
+        $this->assertDatabaseCount('sf_attendance_records', 0);
+    }
+
+    public function test_consolidate_attendance_does_not_downgrade_hr_set_status(): void
+    {
+        [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
+        $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
+        $embedding = array_fill(0, 128, 0.2);
+        SfEmployeeFaceTemplate::create([
+            'sf_employee_id' => $employee->id,
+            'embedding' => $embedding,
+            'photo_path' => 'private/sf-face-templates/x.jpg',
+            'model_version' => 'faceapi-v1',
+            'enrolled_at' => now(),
+            'consent_signed_at' => now(),
+            'status' => SfEmployeeFaceTemplate::STATUS_ACTIVE,
+        ]);
+        $this->fakeEmbedResponse($embedding); // match perfecto -> verified
+
+        $today = now();
+
+        // RH ya importó este empleado+fecha como incapacidad (vía el flujo de Excel).
+        $existing = SfAttendanceRecord::create([
+            'sf_employee_id' => $employee->id,
+            'date' => $today->toDateString(),
+            'status' => 'sick_leave',
+            'source_file' => 'nomina-agosto.xlsx',
+        ]);
+        // Mismo ajuste que hace consolidateAttendance() sobre sus propias filas
+        // (ver comentario en VerifyFieldCheckJob::consolidateAttendance): el cast
+        // 'date' del modelo serializa con hora al escribir ("...00:00:00"), así
+        // que en SQLite hay que normalizar la columna cruda a "AAAA-MM-DD" para
+        // que el where('date', $date) de consolidateAttendance() (con fecha SIN
+        // hora) encuentre esta fila existente — igual que encontraría cualquier
+        // fila real importada por el flujo de Excel una vez normalizada.
+        \Illuminate\Support\Facades\DB::table('sf_attendance_records')
+            ->where('id', $existing->id)
+            ->update(['date' => $today->toDateString()]);
+
+        $check = $this->makeCheck($employee->id, $user->id, ['checked_at' => $today]);
+
+        (new VerifyFieldCheckJob($check->id))->handle();
+
+        $check->refresh();
+        $this->assertSame(SfFieldCheck::STATUS_VERIFIED, $check->verification_status);
+
+        $existing->refresh();
+        // El status de RH NO se sobreescribe a 'present' solo porque un chequeo
+        // biométrico se verificó ese día.
+        $this->assertSame('sick_leave', $existing->status);
+        // pero check_in/check_out/hours_worked sí se siguen actualizando con
+        // normalidad a partir de los chequeos verificados.
+        $this->assertNotNull($existing->check_in);
+        $this->assertSame('field_biometric', $existing->source_device);
+    }
+
     public function test_check_out_after_check_in_computes_hours_worked(): void
     {
         [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
