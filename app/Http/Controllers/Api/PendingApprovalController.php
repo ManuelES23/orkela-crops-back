@@ -11,6 +11,7 @@ use App\Models\EmployeeIncident;
 use App\Models\Enterprise;
 use App\Models\InventoryMovement;
 use App\Models\PurchaseOrder;
+use App\Models\SfFieldCheck;
 use App\Models\VacationBalance;
 use App\Models\VacationRequest;
 use App\Services\NotificationService;
@@ -29,15 +30,20 @@ class PendingApprovalController extends Controller
         $user = $request->user();
         $employee = $user->employee;
         $hasTransferPermission = $this->hasTransferApprovalPermission($request, $user);
+        $fieldCheckEntry = $this->getFieldCheckReviewProcessEntry($request, $user);
 
-        // Sin empleado solo se habilita validación de transferencias por permiso explícito del submódulo.
+        // Sin empleado solo se habilita validación de transferencias o de
+        // revisión de asistencia biométrica, ambas por permiso explícito de submódulo.
         if (! $employee && ! $hasTransferPermission) {
+            $processes = $fieldCheckEntry ? [$fieldCheckEntry] : [];
+            $totalPending = $fieldCheckEntry['pending_count'] ?? 0;
+
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'total_pending' => 0,
-                    'processes' => [],
-                    'can_approve' => false,
+                    'total_pending' => $totalPending,
+                    'processes' => $processes,
+                    'can_approve' => $totalPending > 0,
                 ],
             ]);
         }
@@ -45,22 +51,29 @@ class PendingApprovalController extends Controller
         if (! $employee && $hasTransferPermission) {
             $process = $this->getInventoryApprovalProcess();
             $count = $this->countPendingTransferReceptionsByPermission($request, $user);
+            $processes = [[
+                'process_id' => $process?->id,
+                'code' => ApprovalProcess::INVENTORY_MOVEMENTS,
+                'name' => $process?->name ?? 'Movimientos de inventario',
+                'module' => $process?->module ?? 'inventario',
+                'description' => $process?->description ?? 'Validación de transferencias entre entidades',
+                'pending_count' => $count,
+                'scope' => 'enterprise',
+                'route' => $this->getProcessRoute(ApprovalProcess::INVENTORY_MOVEMENTS),
+            ]];
+            $totalPending = $count;
+
+            if ($fieldCheckEntry) {
+                $processes[] = $fieldCheckEntry;
+                $totalPending += $fieldCheckEntry['pending_count'];
+            }
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'total_pending' => $count,
-                    'processes' => [[
-                        'process_id' => $process?->id,
-                        'code' => ApprovalProcess::INVENTORY_MOVEMENTS,
-                        'name' => $process?->name ?? 'Movimientos de inventario',
-                        'module' => $process?->module ?? 'inventario',
-                        'description' => $process?->description ?? 'Validación de transferencias entre entidades',
-                        'pending_count' => $count,
-                        'scope' => 'enterprise',
-                        'route' => $this->getProcessRoute(ApprovalProcess::INVENTORY_MOVEMENTS),
-                    ]],
-                    'can_approve' => $count > 0,
+                    'total_pending' => $totalPending,
+                    'processes' => $processes,
+                    'can_approve' => $totalPending > 0,
                     'approver_info' => [
                         'position' => null,
                         'department' => null,
@@ -125,6 +138,11 @@ class PendingApprovalController extends Controller
                 ];
                 $totalPending += $count;
             }
+        }
+
+        if ($fieldCheckEntry) {
+            $result[] = $fieldCheckEntry;
+            $totalPending += $fieldCheckEntry['pending_count'];
         }
 
         return response()->json([
@@ -1406,5 +1424,128 @@ class PendingApprovalController extends Controller
         }
 
         return Enterprise::where('slug', $slug)->value('id');
+    }
+
+    /**
+     * IDs de empresa (SplendidFarms u otras) donde el usuario tiene permiso
+     * de escritura en el submódulo 'revision-asistencia' de Personal. A
+     * diferencia de los procesos basados en ApprovalProcess (jerarquía
+     * empleado/departamento), este acceso es por permiso de submódulo puro
+     * — mismo patrón ya usado para transferencias de inventario
+     * (hasTransferApprovalPermission), generalizado a "puede pertenecer a
+     * varias empresas" porque el módulo de Personal SF usa
+     * User::activeEnterprises(), no un Employee único por usuario.
+     */
+    private function getFieldCheckReviewableEnterpriseIds($user): array
+    {
+        if (! Schema::hasTable('user_submodule_access')) {
+            return [];
+        }
+
+        $submoduleRows = DB::table('submodules')
+            ->join('modules', 'submodules.module_id', '=', 'modules.id')
+            ->join('applications', 'modules.application_id', '=', 'applications.id')
+            ->where('applications.slug', 'administration')
+            ->where('modules.slug', 'personal')
+            ->where('submodules.slug', 'revision-asistencia')
+            ->pluck('applications.enterprise_id', 'submodules.id');
+
+        if ($submoduleRows->isEmpty()) {
+            return [];
+        }
+
+        $submoduleIds = $submoduleRows->keys();
+
+        $accessibleSubmoduleIds = DB::table('user_submodule_access')
+            ->where('user_id', $user->id)
+            ->whereIn('submodule_id', $submoduleIds)
+            ->where('is_active', true)
+            ->pluck('submodule_id');
+
+        if ($accessibleSubmoduleIds->isEmpty()) {
+            return [];
+        }
+
+        // Sin filas en user_submodule_permissions para estos submódulos: se
+        // trata como acceso permitido (mismo comportamiento que
+        // hasTransferApprovalPermission cuando $permissionRows está vacío) —
+        // evita bloquear el carve-out antes de que alguien configure tipos
+        // de permiso explícitos vía /admin/permission-types.
+        if (! Schema::hasTable('user_submodule_permissions') || ! Schema::hasTable('submodule_permission_types')) {
+            return $accessibleSubmoduleIds->map(fn ($id) => (int) $submoduleRows[$id])->unique()->values()->all();
+        }
+
+        // Seleccionar solo columnas que realmente existen: is_granted/granted y
+        // slug/key son nombres alternativos vistos en distintas migraciones de
+        // este mismo esquema (ver 2025_12_05_000004 y _000005), y seleccionar
+        // una columna inexistente rompe la consulta en MySQL/SQLite sin
+        // importar cuántas filas matcheen — a diferencia de hasTransferApprovalPermission,
+        // aquí se arma la lista de columnas dinámicamente para no reintroducir
+        // ese mismo problema.
+        $grantedColumn = Schema::hasColumn('user_submodule_permissions', 'is_granted') ? 'is_granted' : 'granted';
+        $slugColumn = Schema::hasColumn('submodule_permission_types', 'slug') ? 'slug' : 'key';
+
+        $permissionRows = DB::table('user_submodule_permissions as usp')
+            ->leftJoin('submodule_permission_types as spt', 'usp.permission_type_id', '=', 'spt.id')
+            ->where('usp.user_id', $user->id)
+            ->whereIn('usp.submodule_id', $accessibleSubmoduleIds)
+            ->get(['usp.submodule_id', "usp.{$grantedColumn} as is_granted", "spt.{$slugColumn} as slug"]);
+
+        $acceptedSlugs = ['ver', 'view', 'editar', 'edit', 'aprobar', 'approve'];
+        $enterpriseIds = [];
+
+        foreach ($accessibleSubmoduleIds as $submoduleId) {
+            $rowsForSubmodule = $permissionRows->where('submodule_id', $submoduleId);
+
+            if ($rowsForSubmodule->isEmpty()) {
+                $enterpriseIds[] = (int) $submoduleRows[$submoduleId];
+                continue;
+            }
+
+            foreach ($rowsForSubmodule as $row) {
+                $isGranted = (bool) $row->is_granted;
+                $slug = strtolower((string) ($row->slug ?? ''));
+
+                if ($isGranted && $slug !== '' && in_array($slug, $acceptedSlugs, true)) {
+                    $enterpriseIds[] = (int) $submoduleRows[$submoduleId];
+                    break;
+                }
+            }
+        }
+
+        return array_values(array_unique($enterpriseIds));
+    }
+
+    /**
+     * Entrada sintética para el dropdown global "Por Aprobar", o null si el
+     * usuario no tiene permiso en ninguna empresa. No es un ApprovalProcess
+     * (decisión de diseño: este acceso es por permiso, no por jerarquía) así
+     * que se construye a mano con la misma forma que las entradas normales.
+     */
+    private function getFieldCheckReviewProcessEntry(Request $request, $user): ?array
+    {
+        $enterpriseIds = $this->getFieldCheckReviewableEnterpriseIds($user);
+        if (empty($enterpriseIds)) {
+            return null;
+        }
+
+        $count = SfFieldCheck::whereIn('enterprise_id', $enterpriseIds)
+            ->whereIn('verification_status', [
+                SfFieldCheck::STATUS_LOW_CONFIDENCE,
+                SfFieldCheck::STATUS_MISMATCH,
+                SfFieldCheck::STATUS_NO_TEMPLATE,
+            ])
+            ->count();
+
+        return [
+            'process_id' => null,
+            'code' => 'field_check_review',
+            'name' => 'Revisión de asistencia biométrica',
+            'module' => 'administration',
+            'description' => 'Chequeos de campo que no se verificaron automáticamente',
+            'pending_count' => $count,
+            'scope' => 'enterprise',
+            'route' => '/administration/personal/revision-asistencia',
+        ];
     }
 }
