@@ -344,6 +344,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'contratos', 'name' => 'Contratos', 'icon' => 'FileSignature', 'order' => 4],
             ['slug' => 'asistencia', 'name' => 'Asistencia', 'icon' => 'ClipboardList', 'order' => 5],
             ['slug' => 'nomina', 'name' => 'Nómina', 'icon' => 'Calculator', 'order' => 6],
+            ['slug' => 'checador-campo', 'name' => 'Checador de Campo', 'icon' => 'ScanFace', 'order' => 7],
         ];
 
         foreach ($personalSubmodules as $sub) {
@@ -352,7 +353,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Personal: Empleados, Puestos, Grupos Salariales, Contratos, Nómina");
+        $this->command->info("    → Personal: Empleados, Puestos, Grupos Salariales, Contratos, Nómina, Checador de Campo");
 
         // Módulo: Reportes
         $reportesAdmin = Module::firstOrCreate(
