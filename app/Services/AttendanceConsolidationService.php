@@ -2,6 +2,8 @@
 // sentinel-back/app/Services/AttendanceConsolidationService.php
 namespace App\Services;
 
+use App\Events\SfAttendanceRecordUpdated;
+use App\Models\Enterprise;
 use App\Models\SfAttendanceRecord;
 use App\Models\SfFieldCheck;
 use Illuminate\Support\Facades\DB;
@@ -63,5 +65,30 @@ class AttendanceConsolidationService
         // la columna DATE cruda para que updateOrCreate() sea idempotente sin
         // importar el motor de BD (SQLite en tests vs MySQL en producción).
         DB::table('sf_attendance_records')->where('id', $record->id)->update(['date' => $date]);
+
+        $this->broadcastUpdate($record, $check, $existingRecord === null);
+    }
+
+    /**
+     * Mejor esfuerzo: si no se puede resolver el slug de la empresa (dato
+     * corrupto/borrado), no se rompe la consolidación por esto — solo se omite
+     * el broadcast, la asistencia ya quedó guardada correctamente arriba.
+     */
+    private function broadcastUpdate(SfAttendanceRecord $record, SfFieldCheck $check, bool $wasCreated): void
+    {
+        $enterpriseSlug = Enterprise::find($check->enterprise_id)?->slug;
+        if (! $enterpriseSlug) {
+            return;
+        }
+
+        $record->load('employee:id,code,checker_key,first_name,last_name,second_last_name');
+
+        broadcast(new SfAttendanceRecordUpdated(
+            $wasCreated ? 'created' : 'updated',
+            $record->toArray(),
+            $enterpriseSlug,
+            'administration',
+            'personal',
+        ));
     }
 }
