@@ -297,16 +297,26 @@ class SfFieldCheckController extends Controller
      *
      * User::hasEnterpriseAccess() existe pero recibe un slug (string), no un id
      * — este controller trabaja con enterprise_id (numérico, ya validado con
-     * exists:enterprises,id) en las 3 rutas que expone. En vez de traducir el
-     * id a slug con una consulta extra solo para volver a filtrar el mismo
-     * pivot por slug, se consulta directamente la relación activeEnterprises()
-     * (el mismo pivot user_enterprises con is_active=true que hasEnterpriseAccess()
-     * usa por debajo) filtrando por enterprises.id.
+     * exists:enterprises,id) en las 3 rutas que expone.
+     *
+     * OJO: se consulta UserEnterpriseAccess (tabla user_enterprise_access), NO
+     * User::activeEnterprises()/hasEnterpriseAccess() (pivot legacy
+     * user_enterprises) — esas dos tablas son sistemas distintos. El modal de
+     * permisos actual (HierarchicalPermissionController) y el login
+     * (AuthController::getUserPermissions(), fuente real de qué empresas ve un
+     * usuario) escriben/leen UserEnterpriseAccess; user_enterprises no lo llena
+     * ninguna pantalla vigente del admin. Usar el pivot legacy aquí causaba 403
+     * ("No tienes acceso a esta empresa") para cualquier usuario al que se le
+     * hubiera dado acceso por el camino correcto (el modal de permisos) —
+     * confirmado en campo agosto 2026 con un usuario recién dado de alta.
      */
     private function authorizeEnterpriseAccess(Request $request, int $enterpriseId): void
     {
         abort_unless(
-            $request->user()->activeEnterprises()->where('enterprises.id', $enterpriseId)->exists(),
+            \App\Models\UserEnterpriseAccess::where('user_id', $request->user()->id)
+                ->where('enterprise_id', $enterpriseId)
+                ->where('is_active', true)
+                ->exists(),
             403,
             'No tienes acceso a esta empresa'
         );
