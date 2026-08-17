@@ -65,7 +65,8 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    // Los Mochis, Sinaloa — SplendidFarms opera en zona horaria Pacífico de México.
+    'timezone' => 'America/Mazatlan',
 
     /*
     |--------------------------------------------------------------------------
