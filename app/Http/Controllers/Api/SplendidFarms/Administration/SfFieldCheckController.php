@@ -132,12 +132,19 @@ class SfFieldCheckController extends Controller
 
             // checked_at es cuándo el DISPOSITIVO capturó el chequeo (puede ser horas
             // atrás si estaba offline) — se guarda tal cual, sigue siendo el timestamp
-            // real de asistencia. device_synced_at es la hora que el reloj del
-            // dispositivo marca AHORA MISMO, en el instante del sync — comparado
-            // contra now() (hora del servidor en ese mismo instante), esto sí mide
-            // desfase de reloj real entre dispositivo y servidor, independiente de
-            // cuánto tiempo estuvo el dispositivo desconectado.
-            $checkedAt = Carbon::parse($item['checked_at']);
+            // real de asistencia. El cliente manda new Date().toISOString() (UTC
+            // explícito, sufijo "Z"); Carbon::parse() respeta ese offset pero, si no se
+            // normaliza, se guarda en la BD con los dígitos crudos de esa zona horaria
+            // en vez de la zona de la app (America/Mazatlan) — eso desalinea checked_at
+            // contra created_at/synced_at (que sí usan now(), ya en hora de la app) por
+            // el offset UTC↔Mazatlan completo. setTimezone() lo normaliza antes de
+            // guardar. device_synced_at es la hora que el reloj del dispositivo marca
+            // AHORA MISMO, en el instante del sync — comparado contra now() (hora del
+            // servidor en ese mismo instante), esto sí mide desfase de reloj real entre
+            // dispositivo y servidor, independiente de cuánto tiempo estuvo el
+            // dispositivo desconectado; solo se usa para el diff, no se persiste tal
+            // cual, así que no necesita esta misma normalización.
+            $checkedAt = Carbon::parse($item['checked_at'])->setTimezone(config('app.timezone'));
             $deviceSyncedAt = Carbon::parse($item['device_synced_at']);
             $clockSkewSeconds = abs(now()->diffInSeconds($deviceSyncedAt));
 
