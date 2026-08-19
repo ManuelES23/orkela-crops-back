@@ -846,6 +846,10 @@ class ProduccionEmpaqueController extends Controller
                 'is_mixto' => false,
             ]);
 
+            // Borrar los detalles originales del mixto ya copiados a la cola restaurada,
+            // para no dejarlos huérfanos (produccion_empaque_detalles no usa SoftDeletes).
+            ProduccionEmpaqueDetalle::whereIn('id', $detallesParaEstaCola->pluck('id')->all())->delete();
+
             $colasRestauradas[] = [
                 'id' => $cola->id,
                 'numero_pallet' => $cola->numero_pallet,
@@ -952,6 +956,10 @@ class ProduccionEmpaqueController extends Controller
                 'is_cola' => true,
                 'is_mixto' => false,
             ]);
+
+            // Borrar los detalles originales del mixto ya copiados a la cola restaurada,
+            // para no dejarlos huérfanos (produccion_empaque_detalles no usa SoftDeletes).
+            ProduccionEmpaqueDetalle::whereIn('id', collect($detalles)->pluck('id')->all())->delete();
 
             $colasRestauradas[] = [
                 'id' => $cola->id,
@@ -1564,6 +1572,22 @@ class ProduccionEmpaqueController extends Controller
                 $cajasRestantesCola = (int) $cola->detalles()->sum('total_cajas');
                 $pesoRestanteCola = round((float) $cola->detalles()->sum('peso_neto_kg'), 2);
 
+                // Guardar info de esta cola en array para reversibilidad. Debe hacerse
+                // SIEMPRE, incluso si la cola quedó totalmente consumida y será eliminada
+                // a continuación: si no, "Deshacer mixteo" no sabe que esta cola participó
+                // y sus detalles quedan huérfanos sin poder reconstruirla.
+                $colasMixteadas[] = [
+                    'id' => (int) $cola->id,
+                    'numero_pallet' => $cola->numero_pallet,
+                    'cajas' => $cajasSolicitadas,
+                    'peso_neto_kg' => round($totalCajas > 0 ? ($totalPeso * $cajasSolicitadas / $totalCajas) : 0, 2),
+                    'calibre' => $cola->calibre,
+                    'marca' => $cola->marca,
+                    'tipo_empaque' => $cola->tipo_empaque,
+                    'presentacion' => $cola->presentacion,
+                    'lote_producto_terminado' => $cola->lote_producto_terminado,
+                ];
+
                 if ($cajasRestantesCola <= 0) {
                     $cola->delete();
                     continue;
@@ -1580,19 +1604,6 @@ class ProduccionEmpaqueController extends Controller
                     'peso_bascula_kg' => $pesoBasculaRestante,
                     'is_cola' => true,
                 ]);
-
-                // Guardar info de esta cola en array para reversibilidad
-                $colasMixteadas[] = [
-                    'id' => (int) $cola->id,
-                    'numero_pallet' => $cola->numero_pallet,
-                    'cajas' => $cajasSolicitadas,
-                    'peso_neto_kg' => round($totalCajas > 0 ? ($totalPeso * $cajasSolicitadas / $totalCajas) : 0, 2),
-                    'calibre' => $cola->calibre,
-                    'marca' => $cola->marca,
-                    'tipo_empaque' => $cola->tipo_empaque,
-                    'presentacion' => $cola->presentacion,
-                    'lote_producto_terminado' => $cola->lote_producto_terminado,
-                ];
             }
 
             if ($totalCajas <= 0) {
