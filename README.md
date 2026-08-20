@@ -57,3 +57,7 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+## Forks
+
+- [Orkela Crops](https://github.com/ManuelES23/orkela-crops-back) — same codebase, own branding/DB, kept in sync via `git fetch upstream && git merge upstream/main`.
