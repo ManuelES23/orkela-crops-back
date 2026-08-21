@@ -2,28 +2,28 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use App\Models\Enterprise;
 use App\Models\Application;
+use App\Models\Enterprise;
 use App\Models\Module;
 use App\Models\Submodule;
+use App\Models\SubmodulePermissionType;
 use App\Models\User;
-use App\Models\UserEnterpriseAccess;
 use App\Models\UserApplicationAccess;
+use App\Models\UserEnterpriseAccess;
 use App\Models\UserModuleAccess;
 use App\Models\UserSubmoduleAccess;
 use App\Models\UserSubmodulePermission;
-use App\Models\SubmodulePermissionType;
+use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
 /**
  * Seeder maestro para toda la estructura del sistema SENTINEL 3.0
- * 
+ *
  * Incluye:
  * - Empresas: Grupo Espléndido, Splendid Farms, Splendid by Porvenir
  * - Aplicaciones con sus módulos y submódulos
  * - Asignación de permisos a usuarios
- * 
+ *
  * Ejecutar: php artisan db:seed --class=MasterStructureSeeder
  */
 class MasterStructureSeeder extends Seeder
@@ -67,25 +67,25 @@ class MasterStructureSeeder extends Seeder
         $this->command->info('📦 Creando usuarios...');
 
         User::firstOrCreate(
-            ['email' => 'admin@sentinel.com'],
+            ['email' => 'admin@orkecrops.com'],
             [
                 'name' => 'Administrador',
                 'password' => Hash::make('password123'),
-                'is_admin' => true,
+                'role' => 'admin',
             ]
         );
 
         User::firstOrCreate(
-            ['email' => 'demo@sentinel.com'],
+            ['email' => 'demo@orkecrops.com'],
             [
                 'name' => 'Usuario Demo',
                 'password' => Hash::make('password123'),
-                'is_admin' => false,
+                'role' => 'user',
             ]
         );
 
-        $this->command->info('  ✓ admin@sentinel.com (Administrador)');
-        $this->command->info('  ✓ demo@sentinel.com (Usuario Demo)');
+        $this->command->info('  ✓ admin@orkecrops.com (Administrador)');
+        $this->command->info('  ✓ demo@orkecrops.com (Usuario Demo)');
     }
 
     /**
@@ -157,7 +157,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Recursos Humanos");
+        $this->command->info('  ✓ Recursos Humanos');
 
         // Módulo: Catálogos
         $rhCatalogos = Module::firstOrCreate(
@@ -177,7 +177,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'horarios', 'module_id' => $rhCatalogos->id],
             ['name' => 'Horarios', 'icon' => 'Calendar', 'order' => 3, 'is_active' => true]
         );
-        $this->command->info("    → Catálogos: Departamentos, Puestos, Horarios");
+        $this->command->info('    → Catálogos: Departamentos, Puestos, Horarios');
 
         // Módulo: Empleados
         $rhEmpleados = Module::firstOrCreate(
@@ -189,7 +189,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'lista', 'module_id' => $rhEmpleados->id],
             ['name' => 'Lista de Empleados', 'icon' => 'Users', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Empleados: Lista de Empleados");
+        $this->command->info('    → Empleados: Lista de Empleados');
 
         // Módulo: Asistencia
         $rhAsistencia = Module::firstOrCreate(
@@ -201,13 +201,13 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'registros', 'module_id' => $rhAsistencia->id],
             ['name' => 'Registros', 'icon' => 'ClipboardList', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Asistencia: Registros");
+        $this->command->info('    → Asistencia: Registros');
 
         Submodule::firstOrCreate(
             ['slug' => 'checador', 'module_id' => $rhAsistencia->id],
             ['name' => 'Checador', 'icon' => 'ScanLine', 'order' => 2, 'is_active' => true]
         );
-        $this->command->info("    → Asistencia: Checador");
+        $this->command->info('    → Asistencia: Checador');
 
         // Módulo: Gestión (Vacaciones e Incidencias)
         $rhGestion = Module::firstOrCreate(
@@ -219,13 +219,13 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'vacaciones', 'module_id' => $rhGestion->id],
             ['name' => 'Vacaciones', 'icon' => 'Sun', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Gestión: Vacaciones");
+        $this->command->info('    → Gestión: Vacaciones');
 
         Submodule::firstOrCreate(
             ['slug' => 'incidencias', 'module_id' => $rhGestion->id],
             ['name' => 'Incidencias', 'icon' => 'AlertTriangle', 'order' => 2, 'is_active' => true]
         );
-        $this->command->info("    → Gestión: Incidencias");
+        $this->command->info('    → Gestión: Incidencias');
     }
 
     /**
@@ -249,7 +249,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Administración");
+        $this->command->info('  ✓ Administración');
 
         // Módulo: Agrícola
         $agricola = Module::firstOrCreate(
@@ -275,7 +275,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Agrícola: Cultivos, Ciclos, Temporadas, Variedades, Productores, Zonas, Lotes, Calibres");
+        $this->command->info('    → Agrícola: Cultivos, Ciclos, Temporadas, Variedades, Productores, Zonas, Lotes, Calibres');
 
         // Módulo: Compras Agrícolas
         $comprasAgricolas = Module::firstOrCreate(
@@ -296,7 +296,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Compras Agrícolas: Convenios, Liquidaciones, Tablero Productores, Abonos");
+        $this->command->info('    → Compras Agrícolas: Convenios, Liquidaciones, Tablero Productores, Abonos');
 
         // Módulo: Organización
         $organizacion = Module::firstOrCreate(
@@ -317,7 +317,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Organización: Sucursales, Tipos Entidades, Entidades, Áreas");
+        $this->command->info('    → Organización: Sucursales, Tipos Entidades, Entidades, Áreas');
 
         // Módulo: Catálogos
         $catalogos = Module::firstOrCreate(
@@ -329,7 +329,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'proveedores', 'module_id' => $catalogos->id],
             ['name' => 'Proveedores', 'icon' => 'Truck', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Catálogos: Proveedores");
+        $this->command->info('    → Catálogos: Proveedores');
 
         // Módulo: Personal (Empleados SF + Puestos + Grupos + Contratos)
         $personal = Module::firstOrCreate(
@@ -354,7 +354,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Personal: Empleados, Puestos, Grupos Salariales, Contratos, Nómina, Checador de Campo, Revisión de Asistencia");
+        $this->command->info('    → Personal: Empleados, Puestos, Grupos Salariales, Contratos, Nómina, Checador de Campo, Revisión de Asistencia');
 
         // Módulo: Reportes
         $reportesAdmin = Module::firstOrCreate(
@@ -366,7 +366,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'embarques', 'module_id' => $reportesAdmin->id],
             ['name' => 'Embarques', 'icon' => 'Truck', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Reportes: Embarques");
+        $this->command->info('    → Reportes: Embarques');
 
         // ========================================
         // APLICACIÓN: INVENTARIO
@@ -381,7 +381,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Inventario");
+        $this->command->info('  ✓ Inventario');
 
         // Módulo: Catálogos de Inventario
         $invCatalogos = Module::firstOrCreate(
@@ -405,7 +405,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'tipos-carga', 'module_id' => $invCatalogos->id],
             ['name' => 'Tipos de Carga', 'icon' => 'BoxSelect', 'order' => 4, 'is_active' => true]
         );
-        $this->command->info("    → Catálogos: Categorías, Artículos, Recetas, Tipos de Carga");
+        $this->command->info('    → Catálogos: Categorías, Artículos, Recetas, Tipos de Carga');
 
         // Módulo: Operaciones
         $operaciones = Module::firstOrCreate(
@@ -426,7 +426,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Operaciones: Entradas, Salidas, Transferencias, Ajustes");
+        $this->command->info('    → Operaciones: Entradas, Salidas, Transferencias, Ajustes');
 
         // Módulo: Reportes
         $reportes = Module::firstOrCreate(
@@ -446,7 +446,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Reportes: Existencias, Movimientos, Valorizado");
+        $this->command->info('    → Reportes: Existencias, Movimientos, Valorizado');
 
         // Módulo: Compras
         $compras = Module::firstOrCreate(
@@ -462,7 +462,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'recepciones', 'module_id' => $compras->id],
             ['name' => 'Recepciones', 'icon' => 'PackageCheck', 'order' => 2, 'is_active' => true]
         );
-        $this->command->info("    → Compras: Órdenes de Compra, Recepciones");
+        $this->command->info('    → Compras: Órdenes de Compra, Recepciones');
 
         // ========================================
         // APLICACIÓN: CONTABILIDAD
@@ -477,7 +477,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Contabilidad");
+        $this->command->info('  ✓ Contabilidad');
 
         // Módulo: Cuentas por Pagar
         $cxp = Module::firstOrCreate(
@@ -489,7 +489,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'documentos', 'module_id' => $cxp->id],
             ['name' => 'Documentos', 'icon' => 'FileText', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Cuentas por Pagar: Documentos");
+        $this->command->info('    → Cuentas por Pagar: Documentos');
 
         // ========================================
         // APLICACIÓN: OPERACIÓN AGRÍCOLA
@@ -504,7 +504,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Operación Agrícola");
+        $this->command->info('  ✓ Operación Agrícola');
 
         // Módulo: Agrícola
         $oaAgricola = Module::firstOrCreate(
@@ -530,7 +530,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Agrícola: Productores, Zonas, Lotes, Etapas, Plan Siembra, Visitas, Aplicaciones, Requisiciones, Costeo");
+        $this->command->info('    → Agrícola: Productores, Zonas, Lotes, Etapas, Plan Siembra, Visitas, Aplicaciones, Requisiciones, Costeo');
 
         // Módulo: Cosecha
         $oaCosecha = Module::firstOrCreate(
@@ -552,7 +552,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Cosecha: Dashboard, Salidas de Campo, Cierres, Ventas, Calidad");
+        $this->command->info('    → Cosecha: Dashboard, Salidas de Campo, Cierres, Ventas, Calidad');
 
         // Módulo: Empaque
         $oaEmpaque = Module::firstOrCreate(
@@ -561,8 +561,8 @@ class MasterStructureSeeder extends Seeder
         );
 
         $empaqueSubmodules = [
-            ['slug' => 'dashboard',    'name' => 'Dashboard',        'icon' => 'LayoutDashboard','order' => 0],
-            ['slug' => 'dashboard-daniella', 'name' => 'Dashboard Daniella', 'icon' => 'LayoutDashboard','order' => 1],
+            ['slug' => 'dashboard',    'name' => 'Dashboard',        'icon' => 'LayoutDashboard', 'order' => 0],
+            ['slug' => 'dashboard-daniella', 'name' => 'Dashboard Daniella', 'icon' => 'LayoutDashboard', 'order' => 1],
             ['slug' => 'recepciones',  'name' => 'Recepciones',      'icon' => 'Download',       'order' => 1],
             ['slug' => 'lavado',       'name' => 'Lavado',           'icon' => 'Droplets',       'order' => 2],
             ['slug' => 'proceso',      'name' => 'Proceso',          'icon' => 'Layers',         'order' => 3],
@@ -611,7 +611,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'ver_observaciones_salida_rezaga', 'name' => 'Ver observaciones de revisión', 'description' => 'Permite visualizar las observaciones capturadas durante la revisión de salida de rezaga'],
         ]);
 
-        $this->command->info("    → Empaque: Dashboard, Dashboard Daniella, Recepciones, Lavado, Proceso, Producción, Rezaga, Embarques, Salida Rezaga, Calidad, Reportes, Ajuste de Peso Rezaga, Recorrido de Folios, Balance de Masas");
+        $this->command->info('    → Empaque: Dashboard, Dashboard Daniella, Recepciones, Lavado, Proceso, Producción, Rezaga, Embarques, Salida Rezaga, Calidad, Reportes, Ajuste de Peso Rezaga, Recorrido de Folios, Balance de Masas');
     }
 
     private function ensureSubmodulePermissionTypes(Module $module, string $submoduleSlug, array $types): void
@@ -669,7 +669,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Administración");
+        $this->command->info('  ✓ Administración');
 
         // Módulo: Organización
         $organizacion = Module::firstOrCreate(
@@ -690,7 +690,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Organización: Sucursales, Tipos Entidades, Entidades, Áreas");
+        $this->command->info('    → Organización: Sucursales, Tipos Entidades, Entidades, Áreas');
 
         // ========================================
         // APLICACIÓN: INVENTARIO
@@ -705,7 +705,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Inventario");
+        $this->command->info('  ✓ Inventario');
 
         // Módulo: Catálogos
         $invCatalogos = Module::firstOrCreate(
@@ -725,7 +725,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Catálogos: Categorías, Artículos, Recetas, Tipos de Carga");
+        $this->command->info('    → Catálogos: Categorías, Artículos, Recetas, Tipos de Carga');
 
         // Módulo: Operaciones
         $operaciones = Module::firstOrCreate(
@@ -745,7 +745,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Operaciones: Entradas, Salidas, Transferencias, Ajustes");
+        $this->command->info('    → Operaciones: Entradas, Salidas, Transferencias, Ajustes');
 
         // Módulo: Reportes
         $reportes = Module::firstOrCreate(
@@ -764,7 +764,7 @@ class MasterStructureSeeder extends Seeder
                 ['name' => $sub['name'], 'icon' => $sub['icon'], 'order' => $sub['order'], 'is_active' => true]
             );
         }
-        $this->command->info("    → Reportes: Existencias, Movimientos, Valorizado");
+        $this->command->info('    → Reportes: Existencias, Movimientos, Valorizado');
 
         // Módulo: Compras
         $compras = Module::firstOrCreate(
@@ -780,7 +780,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'recepciones', 'module_id' => $compras->id],
             ['name' => 'Recepciones', 'icon' => 'PackageCheck', 'order' => 2, 'is_active' => true]
         );
-        $this->command->info("    → Compras: Órdenes de Compra, Recepciones");
+        $this->command->info('    → Compras: Órdenes de Compra, Recepciones');
 
         // ========================================
         // APLICACIÓN: VENTAS
@@ -795,7 +795,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Ventas");
+        $this->command->info('  ✓ Ventas');
 
         // Módulo: Clientes
         $clientes = Module::firstOrCreate(
@@ -807,7 +807,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'catalogo', 'module_id' => $clientes->id],
             ['name' => 'Catálogo de Clientes', 'icon' => 'UserCircle', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Clientes: Catálogo de Clientes");
+        $this->command->info('    → Clientes: Catálogo de Clientes');
 
         // Módulo: Gestión de Producto
         $gestionProducto = Module::firstOrCreate(
@@ -819,13 +819,13 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'calculadora-sscc', 'module_id' => $gestionProducto->id],
             ['name' => 'Calculadora SSCC', 'icon' => 'QrCode', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Gestión de Producto: Calculadora SSCC");
+        $this->command->info('    → Gestión de Producto: Calculadora SSCC');
 
         Submodule::firstOrCreate(
             ['slug' => 'etiquetas-sscc', 'module_id' => $gestionProducto->id],
             ['name' => 'Etiquetas SSCC', 'icon' => 'Tags', 'order' => 2, 'is_active' => true]
         );
-        $this->command->info("    → Gestión de Producto: Etiquetas SSCC");
+        $this->command->info('    → Gestión de Producto: Etiquetas SSCC');
 
         // ========================================
         // APLICACIÓN: EXPORTACIONES
@@ -840,7 +840,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Exportaciones");
+        $this->command->info('  ✓ Exportaciones');
 
         // Módulo: Embarques
         $embarques = Module::firstOrCreate(
@@ -852,7 +852,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'programacion', 'module_id' => $embarques->id],
             ['name' => 'Programación', 'icon' => 'Calendar', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Embarques: Programación");
+        $this->command->info('    → Embarques: Programación');
 
         // ========================================
         // APLICACIÓN: COMPRAS DE FRUTA
@@ -867,7 +867,7 @@ class MasterStructureSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        $this->command->info("  ✓ Compras de Fruta");
+        $this->command->info('  ✓ Compras de Fruta');
 
         // Módulo: Recepción
         $recepcion = Module::firstOrCreate(
@@ -879,7 +879,7 @@ class MasterStructureSeeder extends Seeder
             ['slug' => 'tickets', 'module_id' => $recepcion->id],
             ['name' => 'Tickets de Recepción', 'icon' => 'Ticket', 'order' => 1, 'is_active' => true]
         );
-        $this->command->info("    → Recepción: Tickets de Recepción");
+        $this->command->info('    → Recepción: Tickets de Recepción');
     }
 
     /**
@@ -890,7 +890,7 @@ class MasterStructureSeeder extends Seeder
         $this->command->info('');
         $this->command->info('🔐 Asignando permisos...');
 
-        $users = User::whereIn('email', ['admin@sentinel.com', 'demo@sentinel.com'])->get();
+        $users = User::whereIn('email', ['admin@orkecrops.com', 'demo@orkecrops.com'])->get();
         $enterprises = Enterprise::all();
         $permissionTypes = SubmodulePermissionType::all();
 
