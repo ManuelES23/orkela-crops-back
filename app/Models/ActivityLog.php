@@ -41,8 +41,15 @@ class ActivityLog extends Model
 
     /**
      * Crear un log de actividad
+     *
+     * `$userId` es opcional y solo hace falta pasarlo explícito cuando el
+     * request todavía no está autenticado por el guard de Sanctum en el
+     * momento del log (ej. justo después de validar credenciales en
+     * `AuthController::login()`, antes de que exista un token/guard
+     * resuelto) — en ese caso `auth()->id()` daría null y el registro
+     * quedaría atribuido a "Sistema" en vez de al usuario real.
      */
-    public static function log(string $action, ?string $model = null, ?int $modelId = null, ?array $oldValues = null, ?array $newValues = null)
+    public static function log(string $action, ?string $model = null, ?int $modelId = null, ?array $oldValues = null, ?array $newValues = null, ?int $userId = null)
     {
         // Intentar obtener contexto de workspace de headers o sesión
         $enterprise = request()->header('X-Enterprise-Slug') ?? session('current_enterprise_slug');
@@ -51,7 +58,7 @@ class ActivityLog extends Model
         $submodule = request()->header('X-Submodule-Slug') ?? session('current_submodule_slug');
 
         return self::create([
-            'user_id' => auth()->id(),
+            'user_id' => $userId ?? auth()->id(),
             'action' => $action,
             'model' => $model,
             'model_id' => $modelId,

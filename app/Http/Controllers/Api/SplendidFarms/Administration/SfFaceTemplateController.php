@@ -169,7 +169,10 @@ class SfFaceTemplateController extends Controller
     public function photo(Request $request, SfEmployee $sfEmployee)
     {
         abort_unless(
-            $request->user()->activeEnterprises()->where('enterprises.id', $sfEmployee->enterprise_id)->exists(),
+            \App\Models\UserEnterpriseAccess::where('user_id', $request->user()->id)
+                ->where('enterprise_id', $sfEmployee->enterprise_id)
+                ->where('is_active', true)
+                ->exists(),
             403,
             'No tienes acceso a esta empresa'
         );

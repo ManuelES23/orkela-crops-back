@@ -113,7 +113,9 @@ class SystemNotification extends Model
             });
 
             // De sus empresas
-            $enterpriseIds = $user->activeEnterprises()->pluck('enterprises.id');
+            $enterpriseIds = \App\Models\UserEnterpriseAccess::where('user_id', $user->id)
+                ->where('is_active', true)
+                ->pluck('enterprise_id');
             if ($enterpriseIds->isNotEmpty()) {
                 $q->orWhere(function ($enterprise) use ($enterpriseIds) {
                     $enterprise->where('audience_type', self::AUDIENCE_ENTERPRISE)

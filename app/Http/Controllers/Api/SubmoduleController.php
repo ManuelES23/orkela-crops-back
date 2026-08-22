@@ -215,6 +215,13 @@ class SubmoduleController extends Controller
             ], 404);
         }
 
+        \App\Models\ActivityLog::log(
+            action: 'delete',
+            model: 'Submodule',
+            modelId: $submodule->id,
+            oldValues: $submodule->getAttributes(),
+        );
+
         $submodule->delete();
 
         return response()->json([

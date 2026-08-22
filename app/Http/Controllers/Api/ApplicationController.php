@@ -203,6 +203,13 @@ class ApplicationController extends Controller
             ], 422);
         }
 
+        \App\Models\ActivityLog::log(
+            action: 'delete',
+            model: 'Application',
+            modelId: $application->id,
+            oldValues: $application->getAttributes(),
+        );
+
         $application->delete();
 
         return response()->json([

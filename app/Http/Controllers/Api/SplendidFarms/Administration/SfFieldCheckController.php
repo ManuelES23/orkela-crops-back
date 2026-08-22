@@ -295,20 +295,15 @@ class SfFieldCheckController extends Controller
     /**
      * Verifica que el usuario autenticado pertenece a la empresa solicitada.
      *
-     * User::hasEnterpriseAccess() existe pero recibe un slug (string), no un id
-     * — este controller trabaja con enterprise_id (numérico, ya validado con
-     * exists:enterprises,id) en las 3 rutas que expone.
-     *
-     * OJO: se consulta UserEnterpriseAccess (tabla user_enterprise_access), NO
-     * User::activeEnterprises()/hasEnterpriseAccess() (pivot legacy
-     * user_enterprises) — esas dos tablas son sistemas distintos. El modal de
-     * permisos actual (HierarchicalPermissionController) y el login
+     * Se consulta UserEnterpriseAccess (tabla user_enterprise_access) — el
+     * modal de permisos actual (HierarchicalPermissionController) y el login
      * (AuthController::getUserPermissions(), fuente real de qué empresas ve un
-     * usuario) escriben/leen UserEnterpriseAccess; user_enterprises no lo llena
-     * ninguna pantalla vigente del admin. Usar el pivot legacy aquí causaba 403
-     * ("No tienes acceso a esta empresa") para cualquier usuario al que se le
-     * hubiera dado acceso por el camino correcto (el modal de permisos) —
-     * confirmado en campo agosto 2026 con un usuario recién dado de alta.
+     * usuario) escriben/leen esta tabla. El pivot legacy `user_enterprises`
+     * que causaba 403 incorrectos aquí (confirmado en campo agosto 2026) fue
+     * eliminado del todo (ver docs/superpowers/plans/2026-08-21-legacy-user-permissions-cleanup.md) —
+     * ese mismo bug existía también en routes/channels.php, SystemNotification,
+     * NotificationController y SfFaceTemplateController, y ya está corregido
+     * en los cinco lugares.
      */
     private function authorizeEnterpriseAccess(Request $request, int $enterpriseId): void
     {

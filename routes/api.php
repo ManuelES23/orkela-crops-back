@@ -75,8 +75,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Rutas de administración de usuarios
     Route::apiResource('users', App\Http\Controllers\Api\UserController::class);
-    Route::post('users/{user}/enterprises', [App\Http\Controllers\Api\UserController::class, 'assignEnterprises']);
-    Route::post('users/{user}/enterprises/{enterprise}/applications', [App\Http\Controllers\Api\UserController::class, 'assignApplications']);
     Route::get('users-employees-available', [App\Http\Controllers\Api\UserController::class, 'employeesWithoutUser']);
 
     // Rutas de empresas
@@ -750,6 +748,10 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::put('{process}/steps/{step}', [App\Http\Controllers\Api\Admin\ApprovalConfigController::class, 'updateStep']);
             Route::delete('{process}/steps/{step}', [App\Http\Controllers\Api\Admin\ApprovalConfigController::class, 'deleteStep']);
         });
+
+        // Configuración del sistema
+        Route::get('settings', [App\Http\Controllers\Api\Admin\SettingsController::class, 'index']);
+        Route::put('settings', [App\Http\Controllers\Api\Admin\SettingsController::class, 'update']);
     });
 
     // Rutas específicas de Splendid by Porvenir

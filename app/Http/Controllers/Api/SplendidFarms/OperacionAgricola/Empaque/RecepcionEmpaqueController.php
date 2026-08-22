@@ -247,7 +247,7 @@ class RecepcionEmpaqueController extends Controller
                 broadcast(new SalidaCampoUpdated(
                     'updated',
                     $salida->toArray(),
-                    'splendidfarms',
+                    request()->header('X-Enterprise-Slug'),
                     'operacion-agricola',
                     'cosecha'
                 ))->toOthers();
@@ -344,7 +344,7 @@ class RecepcionEmpaqueController extends Controller
                 broadcast(new SalidaCampoUpdated(
                     'updated',
                     $salida->toArray(),
-                    'splendidfarms',
+                    request()->header('X-Enterprise-Slug'),
                     'operacion-agricola',
                     'cosecha'
                 ))->toOthers();
@@ -428,7 +428,7 @@ class RecepcionEmpaqueController extends Controller
         broadcast(new SalidaCampoUpdated(
             'updated',
             $salida->toArray(),
-            'splendidfarms',
+            request()->header('X-Enterprise-Slug'),
             'operacion-agricola',
             'cosecha'
         ))->toOthers();

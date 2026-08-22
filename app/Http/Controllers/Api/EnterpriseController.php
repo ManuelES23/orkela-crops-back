@@ -86,6 +86,7 @@ class EnterpriseController extends Controller
             'description' => 'nullable|string|max:500',
             'domain' => 'nullable|string|max:255|unique:enterprises,domain',
             'logo' => 'nullable|image|mimes:jpeg,jpg,png,gif|max:2048',
+            'color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
             'active' => 'boolean'
         ]);
 
@@ -107,6 +108,12 @@ class EnterpriseController extends Controller
 
         $validated['slug'] = $slug;
 
+        // Color de marca de Orkela Crops por default cuando no se especifica.
+        // La columna ya tiene este mismo default a nivel de BD, pero Eloquent
+        // no refresca el modelo tras create() — sin esto, la respuesta JSON
+        // devolvería color null aunque la fila sí quede en verde.
+        $validated['color'] = $validated['color'] ?? '#59b45f';
+
         // Manejar subida de logo
         if ($request->hasFile('logo')) {
             $logoPath = $request->file('logo')->store('enterprises', 'public');
@@ -125,6 +132,7 @@ class EnterpriseController extends Controller
                 'description' => $enterprise->description,
                 'logo' => $enterprise->logo ? asset('storage/' . $enterprise->logo) : null,
                 'domain' => $enterprise->domain,
+                'color' => $enterprise->color,
                 'active' => (bool) $enterprise->is_active
             ]
         ], 201);
@@ -255,6 +263,7 @@ class EnterpriseController extends Controller
                 Rule::unique('enterprises', 'domain')->ignore($enterprise->id)
             ],
             'logo' => 'nullable|image|mimes:jpeg,jpg,png,gif|max:2048',
+            'color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
             'active' => 'boolean'
         ]);
 
@@ -301,6 +310,7 @@ class EnterpriseController extends Controller
                 'description' => $enterprise->description,
                 'logo' => $enterprise->logo ? asset('storage/' . $enterprise->logo) : null,
                 'domain' => $enterprise->domain,
+                'color' => $enterprise->color,
                 'active' => (bool) $enterprise->is_active
             ]
         ]);
@@ -324,6 +334,13 @@ class EnterpriseController extends Controller
         if ($enterprise->logo) {
             Storage::disk('public')->delete($enterprise->logo);
         }
+
+        \App\Models\ActivityLog::log(
+            action: 'delete',
+            model: 'Enterprise',
+            modelId: $enterprise->id,
+            oldValues: $enterprise->getAttributes(),
+        );
 
         $enterprise->delete();
 

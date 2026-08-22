@@ -1434,7 +1434,7 @@ class PendingApprovalController extends Controller
      * — mismo patrón ya usado para transferencias de inventario
      * (hasTransferApprovalPermission), generalizado a "puede pertenecer a
      * varias empresas" porque el módulo de Personal SF usa
-     * User::activeEnterprises(), no un Employee único por usuario.
+     * UserEnterpriseAccess (multi-empresa), no un Employee único por usuario.
      */
     private function getFieldCheckReviewableEnterpriseIds($user): array
     {

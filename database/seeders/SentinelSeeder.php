@@ -139,35 +139,6 @@ class SentinelSeeder extends Seeder
             );
         }
 
-        // ===== SISTEMA DE PERMISOS ANTIGUO (mantener compatibilidad) =====
-        
-        // Asignar permisos al usuario demo en el sistema antiguo
-        if (! $user->enterprises()->where('enterprises.id', $splendidfarms->id)->exists()) {
-            $user->enterprises()->attach($splendidfarms->id, [
-                'role' => 'admin',
-                'is_active' => true,
-                'granted_at' => now(),
-            ]);
-        }
-
-        if (! $user->enterprises()->where('enterprises.id', $splendidbyporvenir->id)->exists()) {
-            $user->enterprises()->attach($splendidbyporvenir->id, [
-                'role' => 'admin',
-                'is_active' => true,
-                'granted_at' => now(),
-            ]);
-        }
-
-        foreach ($applications as $application) {
-            if (! $user->applications()->where('applications.id', $application->id)->exists()) {
-                $user->applications()->attach($application->id, [
-                    'permissions' => json_encode(['read', 'write', 'delete']),
-                    'is_active' => true,
-                    'granted_at' => now(),
-                ]);
-            }
-        }
-
         echo "✅ Datos de SENTINEL 3.0 creados exitosamente!\n";
         echo "👤 Usuario: demo@sentinel.com\n";
         echo "🔑 Password: password123\n";

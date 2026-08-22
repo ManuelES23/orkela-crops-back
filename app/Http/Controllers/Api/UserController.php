@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Employee;
+use App\Models\UserApplicationAccess;
+use App\Models\UserEnterpriseAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -13,10 +15,37 @@ class UserController extends Controller
 {
     /**
      * Display a listing of the resource.
+     *
+     * `User::enterprises()`/`applications()` apuntan a las tablas legadas
+     * `user_enterprises`/`user_applications`, que están vacías — el sistema
+     * de permisos real usado por el login (AuthController::getUserPermissions)
+     * y por "Gestionar Permisos" (UserHierarchicalPermissionsModal) vive en
+     * las tablas jerárquicas `user_enterprise_access`/`user_application_access`.
+     * Leer de las tablas legadas hacía que el panel admin mostrara "Sin
+     * asignar" para usuarios que sí tienen empresas/aplicaciones asignadas.
      */
     public function index()
     {
-        $users = User::with(['enterprises', 'applications'])->get()->map(function ($user) {
+        $enterpriseAccessByUser = UserEnterpriseAccess::where('is_active', true)
+            ->get()
+            ->groupBy('user_id');
+
+        $applicationAccessByUser = UserApplicationAccess::where('is_active', true)
+            ->with('application:id,enterprise_id')
+            ->get()
+            ->groupBy('user_id');
+
+        $users = User::all()->map(function ($user) use ($enterpriseAccessByUser, $applicationAccessByUser) {
+            $enterpriseIds = ($enterpriseAccessByUser->get($user->id) ?? collect())
+                ->pluck('enterprise_id')
+                ->toArray();
+
+            $applicationsByEnterprise = ($applicationAccessByUser->get($user->id) ?? collect())
+                ->filter(fn ($access) => $access->application)
+                ->groupBy(fn ($access) => $access->application->enterprise_id)
+                ->map(fn ($group) => $group->pluck('application_id')->toArray())
+                ->toArray();
+
             return [
                 'id' => $user->id,
                 'name' => $user->name,
@@ -25,10 +54,8 @@ class UserController extends Controller
                 'role' => $user->role ?? 'user',
                 'created_at' => $user->created_at,
                 'permissions' => [
-                    'enterprises' => $user->enterprises->pluck('id')->toArray(),
-                    'applications' => $user->applications->groupBy('enterprise_id')->map(function ($apps) {
-                        return $apps->pluck('id')->toArray();
-                    })->toArray()
+                    'enterprises' => $enterpriseIds,
+                    'applications' => $applicationsByEnterprise,
                 ]
             ];
         });
@@ -74,9 +101,32 @@ class UserController extends Controller
      */
     public function show(string $id)
     {
-        $user = User::with(['enterprises', 'applications'])->findOrFail($id);
-        
-        return response()->json($user);
+        $user = User::findOrFail($id);
+
+        $enterpriseIds = UserEnterpriseAccess::where('user_id', $user->id)
+            ->where('is_active', true)
+            ->pluck('enterprise_id');
+
+        $applicationsByEnterprise = UserApplicationAccess::where('user_id', $user->id)
+            ->where('is_active', true)
+            ->with('application:id,enterprise_id')
+            ->get()
+            ->filter(fn ($access) => $access->application)
+            ->groupBy(fn ($access) => $access->application->enterprise_id)
+            ->map(fn ($group) => $group->pluck('application_id')->toArray());
+
+        return response()->json([
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'phone' => $user->phone ?? null,
+            'role' => $user->role ?? 'user',
+            'created_at' => $user->created_at,
+            'permissions' => [
+                'enterprises' => $enterpriseIds,
+                'applications' => $applicationsByEnterprise,
+            ],
+        ]);
     }
 
     /**
@@ -112,51 +162,19 @@ class UserController extends Controller
     public function destroy(string $id)
     {
         $user = User::findOrFail($id);
+
+        \App\Models\ActivityLog::log(
+            action: 'delete',
+            model: 'User',
+            modelId: $user->id,
+            // Excluye password/remember_token — nunca deben quedar en el log.
+            oldValues: collect($user->getAttributes())->except($user->getHidden())->all(),
+        );
+
         $user->delete();
 
         return response()->json([
             'message' => 'Usuario eliminado exitosamente'
-        ]);
-    }
-
-    /**
-     * Assign enterprises to user
-     */
-    public function assignEnterprises(Request $request, string $id)
-    {
-        $user = User::findOrFail($id);
-        
-        $validated = $request->validate([
-            'enterprise_ids' => 'required|array',
-            'enterprise_ids.*' => 'exists:enterprises,id',
-        ]);
-
-        $user->enterprises()->sync($validated['enterprise_ids']);
-
-        return response()->json([
-            'message' => 'Empresas asignadas exitosamente',
-            'user' => $user->load('enterprises')
-        ]);
-    }
-
-    /**
-     * Assign applications to user for specific enterprise
-     */
-    public function assignApplications(Request $request, string $userId, string $enterpriseId)
-    {
-        $user = User::findOrFail($userId);
-        
-        $validated = $request->validate([
-            'application_ids' => 'required|array',
-            'application_ids.*' => 'exists:applications,id',
-        ]);
-
-        // Sync applications for this user and enterprise
-        $user->applications()->syncWithoutDetaching($validated['application_ids']);
-
-        return response()->json([
-            'message' => 'Aplicaciones asignadas exitosamente',
-            'user' => $user->load('applications')
         ]);
     }
 

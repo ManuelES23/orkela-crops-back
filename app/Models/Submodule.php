@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Submodule extends Model
 {
@@ -33,16 +32,6 @@ class Submodule extends Model
     public function module(): BelongsTo
     {
         return $this->belongsTo(Module::class);
-    }
-
-    /**
-     * Usuarios que tienen permisos en este submódulo
-     */
-    public function users(): BelongsToMany
-    {
-        return $this->belongsToMany(User::class, 'user_submodule_permissions')
-            ->withPivot(['can_view', 'can_create', 'can_edit', 'can_delete', 'is_active', 'granted_at', 'expires_at'])
-            ->withTimestamps();
     }
 
     /**

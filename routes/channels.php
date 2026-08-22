@@ -25,21 +25,28 @@ if (config('broadcasting.default') !== 'null' && config('broadcasting.default') 
 
         // Canal privado por empresa
         Broadcast::channel('enterprise.{enterpriseId}', function ($user, $enterpriseId) {
-            return $user->activeEnterprises()
-                ->where('enterprises.id', $enterpriseId)
+            return \App\Models\UserEnterpriseAccess::where('user_id', $user->id)
+                ->where('enterprise_id', $enterpriseId)
+                ->where('is_active', true)
                 ->exists();
         });
 
         // Canal privado por aplicación
         Broadcast::channel('application.{applicationId}', function ($user, $applicationId) {
-            return $user->activeApplications()
-                ->where('applications.id', $applicationId)
+            return \App\Models\UserApplicationAccess::where('user_id', $user->id)
+                ->where('application_id', $applicationId)
+                ->where('is_active', true)
                 ->exists();
         });
 
         // Canal de presencia por empresa (ver quién está conectado)
         Broadcast::channel('presence.enterprise.{enterpriseId}', function ($user, $enterpriseId) {
-            if ($user->activeEnterprises()->where('enterprises.id', $enterpriseId)->exists()) {
+            $hasAccess = \App\Models\UserEnterpriseAccess::where('user_id', $user->id)
+                ->where('enterprise_id', $enterpriseId)
+                ->where('is_active', true)
+                ->exists();
+
+            if ($hasAccess) {
                 return [
                     'id' => $user->id,
                     'name' => $user->name,
@@ -52,7 +59,12 @@ if (config('broadcasting.default') !== 'null' && config('broadcasting.default') 
 
         // Canal de presencia por aplicación
         Broadcast::channel('presence.application.{applicationId}', function ($user, $applicationId) {
-            if ($user->activeApplications()->where('applications.id', $applicationId)->exists()) {
+            $hasAccess = \App\Models\UserApplicationAccess::where('user_id', $user->id)
+                ->where('application_id', $applicationId)
+                ->where('is_active', true)
+                ->exists();
+
+            if ($hasAccess) {
                 return [
                     'id' => $user->id,
                     'name' => $user->name,
@@ -76,8 +88,9 @@ if (config('broadcasting.default') !== 'null' && config('broadcasting.default') 
 
         // Canal CRM por empresa (eventos transversales: asignación de vendedor, etc.)
         Broadcast::channel('crm.{empresaId}', function ($user, $empresaId) {
-            return $user->activeEnterprises()
-                ->where('enterprises.id', $empresaId)
+            return \App\Models\UserEnterpriseAccess::where('user_id', $user->id)
+                ->where('enterprise_id', $empresaId)
+                ->where('is_active', true)
                 ->exists();
         });
 

@@ -32,6 +32,13 @@ class AuthController extends Controller
         // Crear token
         $token = $user->createToken('auth-token')->plainTextToken;
 
+        // Registrar el login en el log de actividad. El guard de Sanctum
+        // todavía no tiene un usuario autenticado en este punto del
+        // request (recién se creó el token), así que auth()->id() daría
+        // null — se pasa el id explícito para que quede atribuido al
+        // usuario real y no a "Sistema".
+        \App\Models\ActivityLog::log(action: 'login', model: 'User', modelId: $user->id, userId: $user->id);
+
         // Obtener permisos del usuario
         $permissions = $this->getUserPermissions($user);
 
@@ -108,6 +115,13 @@ class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
+        $userId = $request->user()->id;
+
+        // Registrar el logout antes de borrar el token — una vez borrado,
+        // el guard ya no tiene un usuario autenticado resuelto para este
+        // request.
+        \App\Models\ActivityLog::log(action: 'logout', model: 'User', modelId: $userId, userId: $userId);
+
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([

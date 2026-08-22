@@ -42,5 +42,10 @@ class DatabaseSeeder extends Seeder
         $this->call([
             CrmPermisosSeeder::class,
         ]);
+
+        // Settings por defecto del panel de administración
+        $this->call([
+            SystemSettingSeeder::class,
+        ]);
     }
 }

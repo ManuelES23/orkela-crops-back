@@ -8,6 +8,8 @@ use App\Models\Enterprise;
 use App\Models\Application;
 use App\Models\Module;
 use App\Models\Submodule;
+use App\Models\UserApplicationAccess;
+use App\Models\UserEnterpriseAccess;
 use Illuminate\Support\Facades\DB;
 
 class AssignPermissionsSeeder extends Seeder
@@ -32,11 +34,17 @@ class AssignPermissionsSeeder extends Seeder
             return;
         }
 
-        // Asignar empresa al usuario
-        $admin->enterprises()->syncWithoutDetaching([$enterprise->id]);
+        // Asignar empresa al usuario (sistema jerárquico)
+        UserEnterpriseAccess::updateOrCreate(
+            ['user_id' => $admin->id, 'enterprise_id' => $enterprise->id],
+            ['is_active' => true, 'granted_at' => now()]
+        );
 
-        // Asignar aplicación al usuario
-        $admin->applications()->syncWithoutDetaching([$application->id]);
+        // Asignar aplicación al usuario (sistema jerárquico)
+        UserApplicationAccess::updateOrCreate(
+            ['user_id' => $admin->id, 'application_id' => $application->id],
+            ['is_active' => true, 'granted_at' => now()]
+        );
 
         // Obtener todos los submódulos
         $submodules = Submodule::whereHas('module', function($query) use ($application) {

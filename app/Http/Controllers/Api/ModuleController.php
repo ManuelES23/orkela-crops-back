@@ -166,6 +166,13 @@ class ModuleController extends Controller
             ], 422);
         }
 
+        \App\Models\ActivityLog::log(
+            action: 'delete',
+            model: 'Module',
+            modelId: $module->id,
+            oldValues: $module->getAttributes(),
+        );
+
         $module->delete();
 
         return response()->json([

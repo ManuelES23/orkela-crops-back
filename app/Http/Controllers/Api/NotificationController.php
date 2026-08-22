@@ -183,8 +183,9 @@ class NotificationController extends Controller
 
             case SystemNotification::AUDIENCE_ENTERPRISE:
                 // Verificar si el usuario pertenece a la empresa
-                return $user->enterprises()
+                return \App\Models\UserEnterpriseAccess::where('user_id', $user->id)
                     ->where('enterprise_id', $notification->enterprise_id)
+                    ->where('is_active', true)
                     ->exists();
 
             case SystemNotification::AUDIENCE_ROLE:

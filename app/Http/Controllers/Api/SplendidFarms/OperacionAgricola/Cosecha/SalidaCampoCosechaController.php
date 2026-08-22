@@ -170,7 +170,7 @@ class SalidaCampoCosechaController extends Controller
         broadcast(new SalidaCampoUpdated(
             'created',
             $salida->toArray(),
-            'splendidfarms',
+            request()->header('X-Enterprise-Slug'),
             'operacion-agricola',
             'cosecha'
         ))->toOthers();
@@ -279,7 +279,7 @@ class SalidaCampoCosechaController extends Controller
         broadcast(new SalidaCampoUpdated(
             'updated',
             $salida->toArray(),
-            'splendidfarms',
+            request()->header('X-Enterprise-Slug'),
             'operacion-agricola',
             'cosecha'
         ))->toOthers();
@@ -329,7 +329,7 @@ class SalidaCampoCosechaController extends Controller
         broadcast(new SalidaCampoUpdated(
             'deleted',
             ['id' => $salida->id],
-            'splendidfarms',
+            request()->header('X-Enterprise-Slug'),
             'operacion-agricola',
             'cosecha'
         ))->toOthers();
