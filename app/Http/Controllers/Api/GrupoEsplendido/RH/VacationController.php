@@ -529,15 +529,19 @@ class VacationController extends Controller
 
     /**
      * Inicializar/recalcular balances de vacaciones para todos los empleados activos
+     * de una empresa específica.
      */
     public function initializeBalances(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'year' => 'nullable|integer|min:2020|max:2100',
+            'enterprise_id' => 'required|integer|exists:enterprises,id',
         ]);
 
+        $this->authorizeEnterpriseAccess($request, $validated['enterprise_id']);
+
         $year = $validated['year'] ?? now()->year;
-        $results = VacationCalculatorService::initializeAllBalances($year);
+        $results = VacationCalculatorService::initializeAllBalances($year, $validated['enterprise_id']);
 
         return response()->json([
             'success' => true,
@@ -546,7 +550,6 @@ class VacationController extends Controller
                 'year' => $year,
                 'processed' => count($results['success']),
                 'errors' => count($results['errors']),
-                'details' => $results,
             ],
         ]);
     }
@@ -559,6 +562,8 @@ class VacationController extends Controller
         $validated = $request->validate([
             'year' => 'nullable|integer|min:2020|max:2100',
         ]);
+
+        $this->authorizeEnterpriseAccess($request, $employee->enterprise_id);
 
         $year = $validated['year'] ?? now()->year;
         $balance = VacationCalculatorService::recalculateEmployeeBalance($employee, $year);
@@ -573,6 +578,29 @@ class VacationController extends Controller
                 'vacation_info' => VacationCalculatorService::getEmployeeVacationInfo($employee),
             ],
         ]);
+    }
+
+    /**
+     * Verifica que el usuario autenticado tenga acceso activo a la empresa
+     * indicada (patrón reutilizado de
+     * app/Http/Controllers/Api/SplendidFarms/Administration/SfFieldCheckController.php
+     * y SfFaceTemplateController.php, que consultan UserEnterpriseAccess de la
+     * misma forma). Devuelve el mismo shape JSON de error 403 usado en
+     * app/Http/Controllers/Api/NotificationController.php.
+     */
+    private function authorizeEnterpriseAccess(Request $request, int $enterpriseId): void
+    {
+        $hasAccess = \App\Models\UserEnterpriseAccess::where('user_id', $request->user()->id)
+            ->where('enterprise_id', $enterpriseId)
+            ->where('is_active', true)
+            ->exists();
+
+        if (! $hasAccess) {
+            abort(response()->json([
+                'status' => 'error',
+                'message' => 'No tienes acceso a esta empresa',
+            ], 403));
+        }
     }
 
     /**

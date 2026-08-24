@@ -279,30 +279,29 @@ class VacationCalculatorService
 
     /**
      * Inicializar balances de vacaciones para todos los empleados activos
+     * de la empresa indicada.
      */
-    public static function initializeAllBalances(int $year = null): array
+    public static function initializeAllBalances(int $year, int $enterpriseId): array
     {
-        $year = $year ?? now()->year;
         $results = [
             'success' => [],
             'errors' => [],
         ];
 
-        $employees = Employee::active()->whereNotNull('hire_date')->get();
+        $employees = Employee::active()
+            ->where('enterprise_id', $enterpriseId)
+            ->whereNotNull('hire_date')
+            ->get();
 
         /** @var Employee $employee */
         foreach ($employees as $employee) {
             try {
                 $balance = VacationBalance::initializeForEmployee($employee, $year);
                 $results['success'][] = [
-                    'employee_id' => $employee->id,
-                    'employee_name' => $employee->full_name,
                     'entitled_days' => $balance->entitled_days,
                 ];
             } catch (\Exception $e) {
                 $results['errors'][] = [
-                    'employee_id' => $employee->id,
-                    'employee_name' => $employee->full_name,
                     'error' => $e->getMessage(),
                 ];
             }
