@@ -1,9 +1,11 @@
 <?php
 
+use App\Models\Enterprise;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 
 /*
 |--------------------------------------------------------------------------
@@ -761,8 +763,18 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('settings', [App\Http\Controllers\Api\Admin\SettingsController::class, 'update']);
     });
 
-    // Rutas específicas de Splendid by Porvenir
-    Route::prefix('splendidbyporvenir')->group(function () {
+    // Rutas específicas de Splendid by Porvenir — el mismo bloque se
+    // registra también bajo cada empresa espejo de 'splendidbyporvenir'.
+    // El contenido interior no se reindentó a propósito para minimizar el diff.
+    // Guard con Schema::hasTable(): este archivo se recarga en cada boot de
+    // la app, incluso antes de que corran las migraciones (p. ej. el primer
+    // boot de un test con RefreshDatabase, o una instalación nueva); sin el
+    // guard, la query de mirrorsOf() reventaría con "no such table".
+    $empresasComercio = Schema::hasTable('enterprises')
+        ? Enterprise::mirrorsOf('splendidbyporvenir')->pluck('slug')
+        : collect();
+    foreach ($empresasComercio as $empresaComercio) {
+    Route::prefix($empresaComercio)->group(function () {
 
         // =====================================================
         // APLICACIÓN ADMINISTRACIÓN (mismos controllers que SF)
@@ -924,12 +936,22 @@ Route::middleware('auth:sanctum')->group(function () {
             // Rutas de compras...
         });
     });
+    }
 
     // =====================================================
     // RUTAS DE GRUPO ESPLÉNDIDO
     // Corporativo central - acceso a todas las empresas
+    // El mismo bloque se registra también bajo cada empresa espejo de
+    // 'grupoesplendido'. El contenido interior no se reindentó a propósito
+    // para minimizar el diff.
+    // Guard con Schema::hasTable(): ver comentario análogo en el bloque de
+    // Splendid by Porvenir más arriba.
     // =====================================================
-    Route::prefix('grupoesplendido')->group(function () {
+    $empresasRh = Schema::hasTable('enterprises')
+        ? Enterprise::mirrorsOf('grupoesplendido')->pluck('slug')
+        : collect();
+    foreach ($empresasRh as $empresaRh) {
+    Route::prefix($empresaRh)->group(function () {
 
         // =====================================================
         // APLICACIÓN RECURSOS HUMANOS
@@ -1041,6 +1063,7 @@ Route::middleware('auth:sanctum')->group(function () {
             });
         });
     });
+    }
 });
 
 // =====================================================
