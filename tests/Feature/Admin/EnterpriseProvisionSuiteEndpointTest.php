@@ -4,6 +4,9 @@ namespace Tests\Feature\Admin;
 
 use App\Models\Enterprise;
 use App\Models\User;
+use App\Models\UserApplicationAccess;
+use App\Models\UserEnterpriseAccess;
+use App\Models\UserSubmodulePermission;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -73,5 +76,41 @@ class EnterpriseProvisionSuiteEndpointTest extends TestCase
         $this->putJson("/api/enterprises/{$mirror->id}", [
             'name' => 'Finca Modelo', 'description' => 'x', 'mirror_source_id' => $rootB->id,
         ])->assertStatus(422);
+    }
+
+    /**
+     * Regresión para el hallazgo Importante del review final de rama:
+     * EnterpriseProvisioningService::provision() construía el árbol de
+     * Aplicación/Módulo/Submódulo pero no le daba acceso a NADIE — ni
+     * siquiera al admin que disparó el aprovisionamiento vía este
+     * endpoint HTTP. provisionSuite() ahora también llama a
+     * EnterpriseProvisioningService::grantAccessToUser() para el admin
+     * que hace la llamada.
+     */
+    public function test_provision_suite_grants_calling_admin_full_access(): void
+    {
+        $admin = $this->actingAsAdmin();
+        $root = Enterprise::create(['name' => 'Splendid Farms', 'slug' => 'splendidfarms', 'description' => 'x', 'is_active' => true]);
+        $mirror = Enterprise::create([
+            'name' => 'Finca Modelo', 'slug' => 'finca-modelo-demo', 'description' => 'x',
+            'is_active' => true, 'mirror_source_id' => $root->id,
+        ]);
+
+        $this->assertDatabaseMissing('user_enterprise_access', [
+            'user_id' => $admin->id, 'enterprise_id' => $mirror->id,
+        ]);
+
+        $this->postJson("/api/enterprises/{$mirror->id}/provision-suite")->assertStatus(200);
+
+        $this->assertTrue(
+            UserEnterpriseAccess::where('user_id', $admin->id)->where('enterprise_id', $mirror->id)->where('is_active', true)->exists()
+        );
+        $this->assertGreaterThan(
+            0,
+            UserApplicationAccess::whereIn('application_id', $mirror->applications()->pluck('id'))
+                ->where('user_id', $admin->id)
+                ->count()
+        );
+        $this->assertGreaterThan(0, UserSubmodulePermission::where('user_id', $admin->id)->count());
     }
 }

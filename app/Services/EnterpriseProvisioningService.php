@@ -7,6 +7,12 @@ use App\Models\Enterprise;
 use App\Models\Module;
 use App\Models\Submodule;
 use App\Models\SubmodulePermissionType;
+use App\Models\User;
+use App\Models\UserApplicationAccess;
+use App\Models\UserEnterpriseAccess;
+use App\Models\UserModuleAccess;
+use App\Models\UserSubmoduleAccess;
+use App\Models\UserSubmodulePermission;
 
 /**
  * Construye la jerarquía Aplicación → Módulo → Submódulo para los 3
@@ -42,6 +48,60 @@ class EnterpriseProvisioningService
             'splendidbyporvenir' => $this->provisionTrade($enterprise),
             default => throw new \InvalidArgumentException("Suite raíz desconocida: {$root->slug}"),
         };
+    }
+
+    /**
+     * Otorga acceso completo (empresa → aplicación → módulo → submódulo +
+     * todos los permisos CRUD) a UN usuario sobre UNA empresa. Extraído de
+     * BuildsEnterpriseStructure::grantFullAccess() (Seeder, opera sobre una
+     * lista de usuarios/empresas) para poder invocarse también desde el
+     * endpoint HTTP EnterpriseController::provisionSuite() y otorgarle
+     * acceso de una vez al admin que dispara el aprovisionamiento — sin
+     * esto, una empresa recién aprovisionada por la vía HTTP quedaba con
+     * árbol de Aplicación/Módulo/Submódulo pero sin ningún usuario con
+     * acceso a ella. El recorrido de la jerarquía es idéntico al del
+     * trait (mismos firstOrCreate, mismo orden).
+     */
+    public function grantAccessToUser(User $user, Enterprise $enterprise): void
+    {
+        $permissionTypes = SubmodulePermissionType::all();
+
+        UserEnterpriseAccess::firstOrCreate(
+            ['user_id' => $user->id, 'enterprise_id' => $enterprise->id],
+            ['is_active' => true, 'granted_at' => now()]
+        );
+
+        $applications = Application::where('enterprise_id', $enterprise->id)->get();
+        foreach ($applications as $application) {
+            UserApplicationAccess::firstOrCreate(
+                ['user_id' => $user->id, 'application_id' => $application->id],
+                ['is_active' => true, 'granted_at' => now()]
+            );
+
+            $modules = Module::where('application_id', $application->id)->get();
+            foreach ($modules as $module) {
+                UserModuleAccess::firstOrCreate(
+                    ['user_id' => $user->id, 'module_id' => $module->id],
+                    ['is_active' => true, 'granted_at' => now()]
+                );
+
+                $submodules = Submodule::where('module_id', $module->id)->get();
+                foreach ($submodules as $submodule) {
+                    UserSubmoduleAccess::firstOrCreate(
+                        ['user_id' => $user->id, 'submodule_id' => $submodule->id],
+                        ['is_active' => true, 'granted_at' => now()]
+                    );
+
+                    foreach ($permissionTypes as $permType) {
+                        UserSubmodulePermission::firstOrCreate([
+                            'user_id' => $user->id,
+                            'submodule_id' => $submodule->id,
+                            'permission_type_id' => $permType->id,
+                        ]);
+                    }
+                }
+            }
+        }
     }
 
     /**

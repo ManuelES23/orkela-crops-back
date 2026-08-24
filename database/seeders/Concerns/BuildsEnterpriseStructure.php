@@ -108,45 +108,14 @@ trait BuildsEnterpriseStructure
      */
     protected function grantFullAccess($user, $enterprises): void
     {
-        $permissionTypes = SubmodulePermissionType::all();
-
+        // El recorrido de la jerarquía (Empresa → Aplicación → Módulo →
+        // Submódulo → todos los permisos) vive en
+        // EnterpriseProvisioningService::grantAccessToUser() — lo reutiliza
+        // también EnterpriseController::provisionSuite() (endpoint HTTP) para
+        // no duplicar esta lógica una tercera vez. Acá solo se itera la lista
+        // de empresas y se conserva el logging de consola del Seeder.
         foreach ($enterprises as $enterprise) {
-            \App\Models\UserEnterpriseAccess::firstOrCreate(
-                ['user_id' => $user->id, 'enterprise_id' => $enterprise->id],
-                ['is_active' => true, 'granted_at' => now()]
-            );
-
-            $applications = Application::where('enterprise_id', $enterprise->id)->get();
-            foreach ($applications as $application) {
-                \App\Models\UserApplicationAccess::firstOrCreate(
-                    ['user_id' => $user->id, 'application_id' => $application->id],
-                    ['is_active' => true, 'granted_at' => now()]
-                );
-
-                $modules = Module::where('application_id', $application->id)->get();
-                foreach ($modules as $module) {
-                    \App\Models\UserModuleAccess::firstOrCreate(
-                        ['user_id' => $user->id, 'module_id' => $module->id],
-                        ['is_active' => true, 'granted_at' => now()]
-                    );
-
-                    $submodules = Submodule::where('module_id', $module->id)->get();
-                    foreach ($submodules as $submodule) {
-                        \App\Models\UserSubmoduleAccess::firstOrCreate(
-                            ['user_id' => $user->id, 'submodule_id' => $submodule->id],
-                            ['is_active' => true, 'granted_at' => now()]
-                        );
-
-                        foreach ($permissionTypes as $permType) {
-                            \App\Models\UserSubmodulePermission::firstOrCreate([
-                                'user_id' => $user->id,
-                                'submodule_id' => $submodule->id,
-                                'permission_type_id' => $permType->id,
-                            ]);
-                        }
-                    }
-                }
-            }
+            app(\App\Services\EnterpriseProvisioningService::class)->grantAccessToUser($user, $enterprise);
 
             $this->command->info("    ✓ {$enterprise->name} → {$user->email}");
         }
