@@ -216,7 +216,15 @@ class EnterpriseProvisioningServiceTest extends TestCase
         $this->assertTrue(
             Application::where('enterprise_id', $mirror->id)->where('slug', 'operacion-agricola')->exists()
         );
-        $agricola = Module::whereHas('application', fn ($q) => $q->where('enterprise_id', $mirror->id))
+
+        // 'agricola' es el slug de un módulo en DOS aplicaciones distintas
+        // (Administración y Operación Agrícola) — se ancla explícitamente a
+        // la aplicación 'administration', que es la que tiene el submódulo
+        // 'temporadas' (el de Operación Agrícola no lo tiene, ver
+        // buildAgriculturalSuite() líneas 148-171 vs 403-426).
+        $administration = Application::where('enterprise_id', $mirror->id)
+            ->where('slug', 'administration')->firstOrFail();
+        $agricola = Module::where('application_id', $administration->id)
             ->where('slug', 'agricola')->first();
         $this->assertNotNull($agricola);
         $this->assertTrue(
