@@ -39,7 +39,7 @@ class HierarchicalPermissionController extends Controller
             $enterprises = UserEnterpriseAccess::where('user_id', $userId)
                 // Evita fallas por diferencias de esquema entre ambientes
                 // (por ejemplo, columnas opcionales como icon/color).
-                ->with('enterprise')
+                ->with('enterprise.mirrorSource')
                 ->get()
                 ->map(function ($access) {
                     $enterprise = $access->enterprise;
@@ -55,6 +55,7 @@ class HierarchicalPermissionController extends Controller
                         'is_active' => (bool) $access->is_active && (bool) ($enterprise?->is_active ?? false),
                         'granted_at' => $access->granted_at,
                         'expires_at' => $access->expires_at,
+                        'mirror_source_slug' => $enterprise?->mirrorSource?->slug,
                     ];
                 })
                 ->filter(fn ($enterprise) => ! empty($enterprise['slug']))

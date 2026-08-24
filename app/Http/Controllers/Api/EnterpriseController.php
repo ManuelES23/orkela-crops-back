@@ -44,7 +44,7 @@ class EnterpriseController extends Controller
     {
         // Si es admin, mostrar todas las empresas con más detalles
         if ($request->user() && $request->user()->role === 'admin') {
-            $enterprises = Enterprise::with('activeApplications')
+            $enterprises = Enterprise::with(['activeApplications', 'mirrorSource'])
                 ->get()
                 ->map(function ($enterprise) {
                     return [
@@ -57,7 +57,8 @@ class EnterpriseController extends Controller
                         'color' => $enterprise->color,
                         'active' => (bool) $enterprise->is_active,
                         'created_at' => $enterprise->created_at,
-                        'applications_count' => $enterprise->activeApplications->count()
+                        'applications_count' => $enterprise->activeApplications->count(),
+                        'mirror_source_slug' => $enterprise->mirrorSource?->slug,
                     ];
                 });
 
@@ -69,7 +70,7 @@ class EnterpriseController extends Controller
 
         // Para usuarios normales, solo empresas activas
         $enterprises = Enterprise::active()
-            ->with('activeApplications')
+            ->with(['activeApplications', 'mirrorSource'])
             ->get()
             ->map(function ($enterprise) {
                 return [
@@ -82,6 +83,7 @@ class EnterpriseController extends Controller
                     'icon' => $enterprise->icon,
                     'primary_color' => $enterprise->primary_color,
                     'secondary_color' => $enterprise->secondary_color,
+                    'mirror_source_slug' => $enterprise->mirrorSource?->slug,
                     'applications' => $enterprise->activeApplications->map(function ($app) {
                         return [
                             'id' => $app->id, // ID numérico
@@ -170,9 +172,9 @@ class EnterpriseController extends Controller
     public function show(Request $request, $id): JsonResponse
     {
         // Buscar por ID o slug dependiendo del contexto
-        $enterpriseModel = is_numeric($id) 
-            ? Enterprise::find($id)
-            : Enterprise::where('slug', $id)->first();
+        $enterpriseModel = is_numeric($id)
+            ? Enterprise::with('mirrorSource')->find($id)
+            : Enterprise::with('mirrorSource')->where('slug', $id)->first();
 
         if (!$enterpriseModel) {
             return response()->json([
@@ -194,7 +196,8 @@ class EnterpriseController extends Controller
                     'domain' => $enterpriseModel->domain,
                     'color' => $enterpriseModel->color,
                     'active' => (bool) $enterpriseModel->is_active,
-                    'created_at' => $enterpriseModel->created_at
+                    'created_at' => $enterpriseModel->created_at,
+                    'mirror_source_slug' => $enterpriseModel->mirrorSource?->slug,
                 ]
             ]);
         }
