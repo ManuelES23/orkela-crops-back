@@ -47,14 +47,12 @@ class SuiteRouteParityTest extends TestCase
 
     public static function suiteRoots(): array
     {
-        // Nota: 'agrícola' (splendidfarms) queda fuera a propósito. Ese
-        // bloque de routes/api.php sigue usando un array literal hardcodeado
-        // (['splendidfarms', 'finca-modelo-demo']), no Enterprise::mirrorsOf()
-        // — está fuera del alcance de esta tarea (Task 4), que solo
-        // generaliza RH (grupoesplendido) y Comercio (splendidbyporvenir).
-        // Un espejo nuevo del agrícola (con slug distinto al hardcodeado) NO
-        // recibiría rutas automáticamente, así que este caso no aplica aquí.
+        // Las 3 suites (agrícola, RH, Comercio) usan Enterprise::mirrorsOf()
+        // en routes/api.php, así que un espejo nuevo (con un slug arbitrario,
+        // no presente en ningún array hardcodeado previo) recibe el juego
+        // completo de rutas de su suite automáticamente en las 3.
         return [
+            'agricola' => ['splendidfarms', 'finca-modelo-demo-test'],
             'rh' => ['grupoesplendido', 'agroverde-demo-test'],
             'comercio' => ['splendidbyporvenir', 'exportadora-valle-demo-test'],
         ];

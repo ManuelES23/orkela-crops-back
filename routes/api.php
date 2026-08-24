@@ -184,18 +184,21 @@ Route::middleware('auth:sanctum')->group(function () {
     // "no such column: mirror_source_id" en cada boot, incluyendo el propio
     // `php artisan migrate` (el registro de rutas ocurre antes de que corra
     // la lógica del comando migrate).
-    // Fallback distinto al de RH/Comercio: si el guard falla, 'splendidfarms'
-    // (raíz) se registra igual — a diferencia de RH/Comercio, esta suite ya
-    // tiene cobertura de tests HTTP real (FixedAssetControllerTest y otros)
-    // que golpean el prefijo 'splendidfarms' con RefreshDatabase normal (sin
-    // el trait BootsDynamicEnterpriseRoutes de tests/Concerns): cada test
+    // Mismo fallback que RH/Comercio (collect([$rootSlug])): si el guard
+    // falla, 'splendidfarms' (raíz) se registra igual, protegiendo sus
+    // rutas durante cualquier ventana en la que el guard sea transitoriamente
+    // falso — p. ej. el orden de boot de RefreshDatabase en tests (cada test
     // arranca una Application nueva cuyo PDO ":memory:" todavía no está
-    // migrado en el momento en que este archivo se carga (RefreshDatabase
+    // migrado en el momento en que este archivo se carga; RefreshDatabase
     // reconecta el PDO cacheado en su propio setUp(), que corre DESPUÉS de
-    // createApplication()) — con `collect()` a secas el guard perdía también
-    // la raíz durante ese arranque y esos tests fallaban con 404 en cascada.
-    // La empresa espejo demo ('finca-modelo-demo') sigue dependiendo de la
-    // query normal y solo aparece una vez que el schema/datos están listos.
+    // createApplication()) o una ventana de despliegue previa a las
+    // migraciones en producción. Esta suite además tiene cobertura de tests
+    // HTTP real (FixedAssetControllerTest y otros) que golpean el prefijo
+    // 'splendidfarms' con RefreshDatabase normal (sin el trait
+    // BootsDynamicEnterpriseRoutes de tests/Concerns), lo que hizo evidente
+    // el bug cuando el fallback aún perdía la raíz. La empresa espejo demo
+    // ('finca-modelo-demo') sigue dependiendo de la query normal y solo
+    // aparece una vez que el schema/datos están listos.
     $empresasAgricolas = (Schema::hasTable('enterprises') && Schema::hasColumn('enterprises', 'mirror_source_id'))
         ? Enterprise::mirrorsOf('splendidfarms')->pluck('slug')->prepend('splendidfarms')->unique()
         : collect(['splendidfarms']);
