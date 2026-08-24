@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 
 class Enterprise extends Model
@@ -14,6 +16,7 @@ class Enterprise extends Model
 
     protected $fillable = [
         'slug',
+        'mirror_source_id',
         'name',
         'razon_social',
         'rfc',
@@ -118,6 +121,27 @@ class Enterprise extends Model
         return $this->belongsToMany(Entity::class, 'enterprise_entity')
             ->withPivot('access_level')
             ->withTimestamps();
+    }
+
+    /**
+     * Empresa raíz de la que esta empresa es "espejo" (mismas rutas, mismas
+     * vistas, misma estructura de Aplicación/Módulo/Submódulo). Null si esta
+     * empresa es ella misma una raíz con su propia suite.
+     */
+    public function mirrorSource(): BelongsTo
+    {
+        return $this->belongsTo(Enterprise::class, 'mirror_source_id');
+    }
+
+    /**
+     * Devuelve la empresa raíz identificada por $rootSlug junto con todas sus
+     * empresas espejo. Usado tanto por las rutas dinámicas (routes/api.php)
+     * como por el aprovisionamiento de estructura.
+     */
+    public function scopeMirrorsOf(Builder $query, string $rootSlug): Builder
+    {
+        return $query->where('slug', $rootSlug)
+            ->orWhereHas('mirrorSource', fn (Builder $q) => $q->where('slug', $rootSlug));
     }
 
     /**
