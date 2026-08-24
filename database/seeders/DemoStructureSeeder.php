@@ -26,6 +26,23 @@ class DemoStructureSeeder extends Seeder
 
         $enterprises = $this->createDemoEnterprises();
 
+        // Vincular cada empresa demo a su raíz real vía mirror_source_id, para
+        // que use el mecanismo nuevo (Enterprise::mirrorsOf) en vez de los
+        // arrays fijos que tenían las rutas antes de esta tarea.
+        $splendidFarms = Enterprise::where('slug', 'splendidfarms')->first();
+        $grupoEsplendido = Enterprise::where('slug', 'grupoesplendido')->first();
+        $splendidByPorvenir = Enterprise::where('slug', 'splendidbyporvenir')->first();
+
+        if ($splendidFarms) {
+            $enterprises['fincamodelo']->update(['mirror_source_id' => $splendidFarms->id]);
+        }
+        if ($grupoEsplendido) {
+            $enterprises['agroverde']->update(['mirror_source_id' => $grupoEsplendido->id]);
+        }
+        if ($splendidByPorvenir) {
+            $enterprises['exportadoravalle']->update(['mirror_source_id' => $splendidByPorvenir->id]);
+        }
+
         $this->buildCorporateRhSuite($enterprises['agroverde']);
         $this->buildAgriculturalSuite($enterprises['fincamodelo']);
         $this->buildTradeSuite($enterprises['exportadoravalle']);

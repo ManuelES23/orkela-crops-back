@@ -1,9 +1,11 @@
 <?php
 
+use App\Models\Enterprise;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 
 /*
 |--------------------------------------------------------------------------
@@ -41,6 +43,19 @@ Route::prefix('auth')->group(function () {
 
 // Rutas protegidas
 Route::middleware('auth:sanctum')->group(function () {
+
+    // Guard único de schema para los 3 bloques de rutas espejo (agrícola/RH/
+    // Comercio) más abajo. Antes cada bloque repetía su propio
+    // Schema::hasTable('enterprises') + Schema::hasColumn('enterprises',
+    // 'mirror_source_id') — 2 operaciones × 3 bloques en cada boot de la
+    // app / cada request. Se calcula una sola vez acá y se reutiliza en los
+    // 3 `$empresasXxx = $enterpriseMirrorSchemaReady ? ... : ...` de abajo.
+    // Mismo motivo del guard que documentan los comentarios originales junto
+    // a cada bloque: este archivo se recarga antes de que corran las
+    // migraciones en algunos escenarios de boot (primer test con
+    // RefreshDatabase, instalación nueva), y sin comprobar la columna
+    // Schema::hasTable() por sí solo daría un falso positivo.
+    $enterpriseMirrorSchemaReady = Schema::hasTable('enterprises') && Schema::hasColumn('enterprises', 'mirror_source_id');
 
     // Rutas de perfil del usuario autenticado
     Route::prefix('profile')->group(function () {
@@ -82,6 +97,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('enterprises/{enterprise}/logo-data', [App\Http\Controllers\Api\EnterpriseController::class, 'logoData']);
     Route::get('enterprises/{enterprise}/applications', [App\Http\Controllers\Api\EnterpriseController::class, 'applications']);
     Route::get('enterprises/{enterprise}/profile', [App\Http\Controllers\Api\EnterpriseController::class, 'profile']);
+    Route::post('enterprises/{enterprise}/provision-suite', [App\Http\Controllers\Api\EnterpriseController::class, 'provisionSuite']);
 
     // Rutas de aplicaciones
     Route::prefix('applications')->group(function () {
@@ -167,11 +183,42 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Rutas específicas de Splendid Farms — el mismo bloque se registra
-    // también bajo 'finca-modelo-demo' (su espejo demo, mismo esqueleto de
-    // aplicaciones/módulos/submódulos por DemoStructureSeeder). El contenido
+    // también bajo cada empresa espejo de 'splendidfarms'. El contenido
     // interior no se reindentó a propósito para minimizar el diff — ver
     // docs/superpowers/specs/2026-08-23-agricultural-suite-multi-tenancy-design.md.
-    foreach (['splendidfarms', 'finca-modelo-demo'] as $empresaAgricola) {
+    // Guard con Schema::hasTable() + Schema::hasColumn(): este archivo se
+    // recarga en cada boot de la app, incluso antes de que corran las
+    // migraciones (p. ej. el primer boot de un test con RefreshDatabase, o
+    // una instalación nueva). La tabla 'enterprises' ya existe en cualquier
+    // entorno desplegado (viene de una migración anterior), pero la columna
+    // 'mirror_source_id' que usa mirrorsOf() es nueva en esta misma rama —
+    // sin comprobar también la columna, Schema::hasTable() por sí solo
+    // daría un falso positivo y la query reventaría con
+    // "no such column: mirror_source_id" en cada boot, incluyendo el propio
+    // `php artisan migrate` (el registro de rutas ocurre antes de que corra
+    // la lógica del comando migrate).
+    // Mismo fallback que RH/Comercio (collect([$rootSlug])): si el guard
+    // falla, 'splendidfarms' (raíz) se registra igual, protegiendo sus
+    // rutas durante cualquier ventana en la que el guard sea transitoriamente
+    // falso — p. ej. el orden de boot de RefreshDatabase en tests (cada test
+    // arranca una Application nueva cuyo PDO ":memory:" todavía no está
+    // migrado en el momento en que este archivo se carga; RefreshDatabase
+    // reconecta el PDO cacheado en su propio setUp(), que corre DESPUÉS de
+    // createApplication()) o una ventana de despliegue previa a las
+    // migraciones en producción. Esta suite además tiene cobertura de tests
+    // HTTP real (FixedAssetControllerTest y otros) que golpean el prefijo
+    // 'splendidfarms' con RefreshDatabase normal (sin el trait
+    // BootsDynamicEnterpriseRoutes de tests/Concerns), lo que hizo evidente
+    // el bug cuando el fallback aún perdía la raíz. La empresa espejo demo
+    // ('finca-modelo-demo') sigue dependiendo de la query normal y solo
+    // aparece una vez que el schema/datos están listos.
+    // ->active(): una empresa espejo desactivada (is_active=false) deja de
+    // registrar su bloque de rutas — la raíz sigue registrada siempre vía
+    // el ->prepend() de abajo, sin importar su propio estado activo/inactivo.
+    $empresasAgricolas = $enterpriseMirrorSchemaReady
+        ? Enterprise::mirrorsOf('splendidfarms')->active()->pluck('slug')->prepend('splendidfarms')->unique()
+        : collect(['splendidfarms']);
+    foreach ($empresasAgricolas as $empresaAgricola) {
     Route::prefix($empresaAgricola)->group(function () {
 
         // =====================================================
@@ -760,8 +807,26 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('settings', [App\Http\Controllers\Api\Admin\SettingsController::class, 'update']);
     });
 
-    // Rutas específicas de Splendid by Porvenir
-    Route::prefix('splendidbyporvenir')->group(function () {
+    // Rutas específicas de Splendid by Porvenir — el mismo bloque se
+    // registra también bajo cada empresa espejo de 'splendidbyporvenir'.
+    // El contenido interior no se reindentó a propósito para minimizar el diff.
+    // Guard con Schema::hasTable() + Schema::hasColumn(): este archivo se
+    // recarga en cada boot de la app, incluso antes de que corran las
+    // migraciones (p. ej. el primer boot de un test con RefreshDatabase, o
+    // una instalación nueva). La tabla 'enterprises' ya existe en cualquier
+    // entorno desplegado (viene de una migración anterior), pero la columna
+    // 'mirror_source_id' que usa mirrorsOf() es nueva en esta misma rama —
+    // sin comprobar también la columna, Schema::hasTable() por sí solo
+    // daría un falso positivo y la query reventaría con
+    // "no such column: mirror_source_id" en cada boot, incluyendo el propio
+    // `php artisan migrate` (el registro de rutas ocurre antes de que corra
+    // la lógica del comando migrate).
+    // ->active(): ver comentario análogo en el bloque agrícola más arriba.
+    $empresasComercio = $enterpriseMirrorSchemaReady
+        ? Enterprise::mirrorsOf('splendidbyporvenir')->active()->pluck('slug')->prepend('splendidbyporvenir')->unique()
+        : collect(['splendidbyporvenir']);
+    foreach ($empresasComercio as $empresaComercio) {
+    Route::prefix($empresaComercio)->group(function () {
 
         // =====================================================
         // APLICACIÓN ADMINISTRACIÓN (mismos controllers que SF)
@@ -923,12 +988,23 @@ Route::middleware('auth:sanctum')->group(function () {
             // Rutas de compras...
         });
     });
+    }
 
     // =====================================================
     // RUTAS DE GRUPO ESPLÉNDIDO
     // Corporativo central - acceso a todas las empresas
+    // El mismo bloque se registra también bajo cada empresa espejo de
+    // 'grupoesplendido'. El contenido interior no se reindentó a propósito
+    // para minimizar el diff.
+    // Guard con Schema::hasTable() + Schema::hasColumn(): ver comentario
+    // análogo en el bloque de Splendid by Porvenir más arriba.
     // =====================================================
-    Route::prefix('grupoesplendido')->group(function () {
+    // ->active(): ver comentario análogo en el bloque agrícola más arriba.
+    $empresasRh = $enterpriseMirrorSchemaReady
+        ? Enterprise::mirrorsOf('grupoesplendido')->active()->pluck('slug')->prepend('grupoesplendido')->unique()
+        : collect(['grupoesplendido']);
+    foreach ($empresasRh as $empresaRh) {
+    Route::prefix($empresaRh)->group(function () {
 
         // =====================================================
         // APLICACIÓN RECURSOS HUMANOS
@@ -1040,6 +1116,7 @@ Route::middleware('auth:sanctum')->group(function () {
             });
         });
     });
+    }
 });
 
 // =====================================================
