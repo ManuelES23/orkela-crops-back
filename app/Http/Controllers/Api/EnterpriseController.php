@@ -108,6 +108,10 @@ class EnterpriseController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        if (! $request->user() || $request->user()->role !== 'admin') {
+            return response()->json(['status' => 'error', 'message' => 'No autorizado.'], 403);
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:enterprises,name',
             'description' => 'nullable|string|max:500',
@@ -268,6 +272,10 @@ class EnterpriseController extends Controller
      */
     public function update(Request $request, $id): JsonResponse
     {
+        if (! $request->user() || $request->user()->role !== 'admin') {
+            return response()->json(['status' => 'error', 'message' => 'No autorizado.'], 403);
+        }
+
         $enterprise = Enterprise::find($id);
 
         if (!$enterprise) {
@@ -378,6 +386,13 @@ class EnterpriseController extends Controller
             return response()->json(['status' => 'error', 'message' => $e->getMessage()], 422);
         }
 
+        // Sin esto, la empresa quedaba aprovisionada (Aplicaciones/Módulos/
+        // Submódulos creados) pero nadie tenía acceso a ella — ni siquiera
+        // el admin que la aprovisionó. Le otorgamos al admin que llama este
+        // endpoint el mismo acceso completo que BuildsEnterpriseStructure
+        // le da a los usuarios semilla.
+        app(EnterpriseProvisioningService::class)->grantAccessToUser($request->user(), $enterprise);
+
         return response()->json([
             'status' => 'success',
             'message' => 'Suite aprovisionada correctamente.',
@@ -388,8 +403,12 @@ class EnterpriseController extends Controller
     /**
      * Eliminar una empresa
      */
-    public function destroy($id): JsonResponse
+    public function destroy(Request $request, $id): JsonResponse
     {
+        if (! $request->user() || $request->user()->role !== 'admin') {
+            return response()->json(['status' => 'error', 'message' => 'No autorizado.'], 403);
+        }
+
         $enterprise = Enterprise::find($id);
 
         if (!$enterprise) {
