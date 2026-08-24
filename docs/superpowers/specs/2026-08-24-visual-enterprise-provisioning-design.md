@@ -141,7 +141,7 @@ tocar código ni redeployar.
 |---|---|---|
 | Agrícola (`splendidfarms`) | Trait `BelongsToEnterprise` + middleware `ResolveCurrentEnterprise` (ya retrofitteado, 176/176 tests) | Ninguno |
 | RH (`grupoesplendido`) | Ya filtra por `enterprise_id` explícito recibido en cada request (`$request->validate(['enterprise_id' => 'required|exists:enterprises,id'])`), columna ya existe en sus tablas | Auditar que ningún controller de RH asuma implícitamente que la única empresa posible es Grupo Espléndido (ver Task de audit en el plan) |
-| Comercio (`splendidbyporvenir`) | Administración e Inventario reutilizan literalmente los controllers de Splendid Farms — ya heredan el trait del retrofit agrícola. Los 3 controllers propios (`Sales`, `Exports`, `Purchases`) no están auditados | Auditar y, si hace falta, aplicar el mismo patrón trait+backfill (volumen bajo: 3 archivos, no 73 tablas) |
+| Comercio (`splendidbyporvenir`) | Administración e Inventario reutilizan literalmente los controllers de Splendid Farms — ya heredan el trait del retrofit agrícola. El único controller propio activo (`Sales\SsccLabelController`) ya resuelve la empresa vía header `X-Enterprise-Slug` (`resolveEnterpriseId()`) — backend ya aislado. `Exports`/`Purchases` no tienen ningún controller registrado todavía (rutas vacías) | Ninguno en el backend. Corregir el hardcode de `"splendidbyporvenir"` en el hook `useSsccLabels.js` del frontend (mismo patrón que los ~78 archivos del retrofit agrícola) |
 
 ### 3. Aprovisionamiento de estructura — reutiliza las funciones existentes
 
@@ -313,8 +313,8 @@ dos sistemas paralelos conviviendo:
    incluye la migración de datos de la sección 6.
 2. RH — habilitar tras el audit de la tabla de la sección 2 (bajo riesgo,
    los datos ya están aislados).
-3. Comercio — habilitar tras auditar y, si hace falta, retrofittear los 3
-   controllers propios de Ventas/Exportaciones/Compras.
+3. Comercio — habilitar tras corregir el único hardcode encontrado
+   (`useSsccLabels.js`, frontend); el backend ya está aislado.
 
 ## Riesgos conocidos
 
