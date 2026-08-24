@@ -140,8 +140,10 @@ class Enterprise extends Model
      */
     public function scopeMirrorsOf(Builder $query, string $rootSlug): Builder
     {
-        return $query->where('slug', $rootSlug)
-            ->orWhereHas('mirrorSource', fn (Builder $q) => $q->where('slug', $rootSlug));
+        return $query->where(function (Builder $q) use ($rootSlug) {
+            $q->where('slug', $rootSlug)
+                ->orWhereHas('mirrorSource', fn (Builder $inner) => $inner->where('slug', $rootSlug));
+        });
     }
 
     /**
