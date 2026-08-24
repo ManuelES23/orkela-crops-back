@@ -804,7 +804,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // la lógica del comando migrate).
     $empresasComercio = (Schema::hasTable('enterprises') && Schema::hasColumn('enterprises', 'mirror_source_id'))
         ? Enterprise::mirrorsOf('splendidbyporvenir')->pluck('slug')->prepend('splendidbyporvenir')->unique()
-        : collect();
+        : collect(['splendidbyporvenir']);
     foreach ($empresasComercio as $empresaComercio) {
     Route::prefix($empresaComercio)->group(function () {
 
@@ -981,7 +981,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // =====================================================
     $empresasRh = (Schema::hasTable('enterprises') && Schema::hasColumn('enterprises', 'mirror_source_id'))
         ? Enterprise::mirrorsOf('grupoesplendido')->pluck('slug')->prepend('grupoesplendido')->unique()
-        : collect();
+        : collect(['grupoesplendido']);
     foreach ($empresasRh as $empresaRh) {
     Route::prefix($empresaRh)->group(function () {
 
