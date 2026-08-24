@@ -170,11 +170,36 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Rutas específicas de Splendid Farms — el mismo bloque se registra
-    // también bajo 'finca-modelo-demo' (su espejo demo, mismo esqueleto de
-    // aplicaciones/módulos/submódulos por DemoStructureSeeder). El contenido
+    // también bajo cada empresa espejo de 'splendidfarms'. El contenido
     // interior no se reindentó a propósito para minimizar el diff — ver
     // docs/superpowers/specs/2026-08-23-agricultural-suite-multi-tenancy-design.md.
-    foreach (['splendidfarms', 'finca-modelo-demo'] as $empresaAgricola) {
+    // Guard con Schema::hasTable() + Schema::hasColumn(): este archivo se
+    // recarga en cada boot de la app, incluso antes de que corran las
+    // migraciones (p. ej. el primer boot de un test con RefreshDatabase, o
+    // una instalación nueva). La tabla 'enterprises' ya existe en cualquier
+    // entorno desplegado (viene de una migración anterior), pero la columna
+    // 'mirror_source_id' que usa mirrorsOf() es nueva en esta misma rama —
+    // sin comprobar también la columna, Schema::hasTable() por sí solo
+    // daría un falso positivo y la query reventaría con
+    // "no such column: mirror_source_id" en cada boot, incluyendo el propio
+    // `php artisan migrate` (el registro de rutas ocurre antes de que corra
+    // la lógica del comando migrate).
+    // Fallback distinto al de RH/Comercio: si el guard falla, 'splendidfarms'
+    // (raíz) se registra igual — a diferencia de RH/Comercio, esta suite ya
+    // tiene cobertura de tests HTTP real (FixedAssetControllerTest y otros)
+    // que golpean el prefijo 'splendidfarms' con RefreshDatabase normal (sin
+    // el trait BootsDynamicEnterpriseRoutes de tests/Concerns): cada test
+    // arranca una Application nueva cuyo PDO ":memory:" todavía no está
+    // migrado en el momento en que este archivo se carga (RefreshDatabase
+    // reconecta el PDO cacheado en su propio setUp(), que corre DESPUÉS de
+    // createApplication()) — con `collect()` a secas el guard perdía también
+    // la raíz durante ese arranque y esos tests fallaban con 404 en cascada.
+    // La empresa espejo demo ('finca-modelo-demo') sigue dependiendo de la
+    // query normal y solo aparece una vez que el schema/datos están listos.
+    $empresasAgricolas = (Schema::hasTable('enterprises') && Schema::hasColumn('enterprises', 'mirror_source_id'))
+        ? Enterprise::mirrorsOf('splendidfarms')->pluck('slug')->prepend('splendidfarms')->unique()
+        : collect(['splendidfarms']);
+    foreach ($empresasAgricolas as $empresaAgricola) {
     Route::prefix($empresaAgricola)->group(function () {
 
         // =====================================================
