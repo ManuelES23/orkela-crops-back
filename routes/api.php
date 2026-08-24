@@ -766,12 +766,19 @@ Route::middleware('auth:sanctum')->group(function () {
     // Rutas específicas de Splendid by Porvenir — el mismo bloque se
     // registra también bajo cada empresa espejo de 'splendidbyporvenir'.
     // El contenido interior no se reindentó a propósito para minimizar el diff.
-    // Guard con Schema::hasTable(): este archivo se recarga en cada boot de
-    // la app, incluso antes de que corran las migraciones (p. ej. el primer
-    // boot de un test con RefreshDatabase, o una instalación nueva); sin el
-    // guard, la query de mirrorsOf() reventaría con "no such table".
-    $empresasComercio = Schema::hasTable('enterprises')
-        ? Enterprise::mirrorsOf('splendidbyporvenir')->pluck('slug')
+    // Guard con Schema::hasTable() + Schema::hasColumn(): este archivo se
+    // recarga en cada boot de la app, incluso antes de que corran las
+    // migraciones (p. ej. el primer boot de un test con RefreshDatabase, o
+    // una instalación nueva). La tabla 'enterprises' ya existe en cualquier
+    // entorno desplegado (viene de una migración anterior), pero la columna
+    // 'mirror_source_id' que usa mirrorsOf() es nueva en esta misma rama —
+    // sin comprobar también la columna, Schema::hasTable() por sí solo
+    // daría un falso positivo y la query reventaría con
+    // "no such column: mirror_source_id" en cada boot, incluyendo el propio
+    // `php artisan migrate` (el registro de rutas ocurre antes de que corra
+    // la lógica del comando migrate).
+    $empresasComercio = (Schema::hasTable('enterprises') && Schema::hasColumn('enterprises', 'mirror_source_id'))
+        ? Enterprise::mirrorsOf('splendidbyporvenir')->pluck('slug')->prepend('splendidbyporvenir')->unique()
         : collect();
     foreach ($empresasComercio as $empresaComercio) {
     Route::prefix($empresaComercio)->group(function () {
@@ -944,11 +951,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // El mismo bloque se registra también bajo cada empresa espejo de
     // 'grupoesplendido'. El contenido interior no se reindentó a propósito
     // para minimizar el diff.
-    // Guard con Schema::hasTable(): ver comentario análogo en el bloque de
-    // Splendid by Porvenir más arriba.
+    // Guard con Schema::hasTable() + Schema::hasColumn(): ver comentario
+    // análogo en el bloque de Splendid by Porvenir más arriba.
     // =====================================================
-    $empresasRh = Schema::hasTable('enterprises')
-        ? Enterprise::mirrorsOf('grupoesplendido')->pluck('slug')
+    $empresasRh = (Schema::hasTable('enterprises') && Schema::hasColumn('enterprises', 'mirror_source_id'))
+        ? Enterprise::mirrorsOf('grupoesplendido')->pluck('slug')->prepend('grupoesplendido')->unique()
         : collect();
     foreach ($empresasRh as $empresaRh) {
     Route::prefix($empresaRh)->group(function () {

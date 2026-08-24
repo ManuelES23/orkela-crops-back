@@ -3,52 +3,16 @@
 namespace Tests\Feature\Admin;
 
 use App\Models\Enterprise;
-use Illuminate\Contracts\Console\Kernel;
-use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use Tests\Concerns\BootsDynamicEnterpriseRoutes;
 use Tests\TestCase;
 
 class SuiteRouteParityTest extends TestCase
 {
     use RefreshDatabase;
-
-    /**
-     * Igual que TestCase::createApplication(), salvo que reconecta la
-     * conexión sqlite ":memory:" al PDO ya migrado (el que RefreshDatabase
-     * cachea estáticamente para todo el proceso, ver RefreshDatabaseState)
-     * ANTES de que arranquen los ServiceProviders.
-     *
-     * Es necesario porque RouteServiceProvider::register() encola la carga
-     * de routes/api.php en $app->booted(), y ese archivo ahora ejecuta
-     * Enterprise::mirrorsOf()->pluck() de forma eager al registrar las rutas
-     * de RH/Comercio. refreshApplication() (llamado desde el test) crea una
-     * Application nueva con una conexión ":memory:" nueva y sin migrar; si la
-     * reconexión al PDO cacheado ocurriera después del boot (por ejemplo
-     * llamando a restoreInMemoryDatabase() tras refreshApplication()),
-     * llegaría demasiado tarde: la query eager ya habría fallado con
-     * "no such table: enterprises" durante el boot.
-     */
-    public function createApplication()
-    {
-        $app = require Application::inferBasePath().'/bootstrap/app.php';
-
-        $this->traitsUsedByTest = array_flip(class_uses_recursive(static::class));
-
-        if (isset(RefreshDatabaseState::$inMemoryConnections['sqlite'])) {
-            $app->booting(function () use ($app) {
-                $app->make('db')->connection('sqlite')->setPdo(
-                    RefreshDatabaseState::$inMemoryConnections['sqlite']
-                );
-            });
-        }
-
-        $app->make(Kernel::class)->bootstrap();
-
-        return $app;
-    }
+    use BootsDynamicEnterpriseRoutes;
 
     /**
      * @dataProvider suiteRoots
@@ -61,8 +25,8 @@ class SuiteRouteParityTest extends TestCase
             'is_active' => true, 'mirror_source_id' => $root->id,
         ]);
 
-        // Forzar recarga de rutas con los datos ya insertados (ver
-        // createApplication() arriba para la reconexión al PDO ":memory:").
+        // Forzar recarga de rutas con los datos ya insertados (ver el trait
+        // BootsDynamicEnterpriseRoutes para la reconexión al PDO ":memory:").
         $this->refreshApplication();
 
         // Las rutas de la API llevan el prefijo "api/" (ver apiPrefix en
