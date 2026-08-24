@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class VisitaCampoPlaga extends Model
 {
-    use HasFactory;
+    use BelongsToEnterprise, HasFactory;
 
     protected $table = 'visita_campo_plagas';
 
     protected $fillable = [
+        'enterprise_id',
         'visita_campo_detalle_id',
         'plaga_id',
         'severidad',

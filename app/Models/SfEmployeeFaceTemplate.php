@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+// No usa BelongsToEnterprise — mismo motivo que SfFieldCheck: ya resuelve
+// enterprise_id vía el "Plan 2" (UserEnterpriseAccess del usuario
+// autenticado), corre desde jobs/comandos sin request HTTP.
 class SfEmployeeFaceTemplate extends Model
 {
     use HasFactory, Loggable, SoftDeletes;
@@ -23,6 +26,7 @@ class SfEmployeeFaceTemplate extends Model
     protected array $loggableExcept = ['embedding'];
 
     protected $fillable = [
+        'enterprise_id',
         'sf_employee_id',
         'embedding',
         'photo_path',

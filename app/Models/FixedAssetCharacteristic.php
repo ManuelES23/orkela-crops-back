@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,9 +13,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class FixedAssetCharacteristic extends Model
 {
-    use HasFactory;
+    use BelongsToEnterprise, HasFactory;
 
     protected $fillable = [
+        'enterprise_id',
         'fixed_asset_id',
         'definition_id',
         'name',

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,11 +10,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class RecepcionEmpaque extends Model
 {
-    use HasFactory, SoftDeletes, Loggable;
+    use BelongsToEnterprise, HasFactory, SoftDeletes, Loggable;
 
     protected $table = 'recepciones_empaque';
 
     protected $fillable = [
+        'enterprise_id',
         'temporada_id', 'entity_id', 'salida_campo_id', 'folio_recepcion',
         'fecha_recepcion', 'hora_recepcion', 'productor_id', 'lote_id',
         'etapa_id', 'variedad_id', 'zona_cultivo_id', 'tipo_carga_id', 'cantidad_recibida',

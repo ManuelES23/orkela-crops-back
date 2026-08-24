@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,11 +11,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class EtapaFenologica extends Model
 {
-    use HasFactory, SoftDeletes, Loggable;
+    use BelongsToEnterprise, HasFactory, SoftDeletes, Loggable;
 
     protected $table = 'etapas_fenologicas';
 
     protected $fillable = [
+        'enterprise_id',
         'cultivo_id',
         'nombre',
         'orden',

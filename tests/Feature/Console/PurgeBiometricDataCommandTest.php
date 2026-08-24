@@ -104,6 +104,7 @@ class PurgeBiometricDataCommandTest extends TestCase
         Storage::disk('local')->put($path, 'fake-jpeg-bytes');
 
         $template = SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => array_fill(0, 128, 0.1),
             'photo_path' => $path,
@@ -131,6 +132,7 @@ class PurgeBiometricDataCommandTest extends TestCase
         Storage::disk('local')->put($path, 'fake-jpeg-bytes');
 
         $template = SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => array_fill(0, 128, 0.1),
             'photo_path' => $path,

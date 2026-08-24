@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,9 +18,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class PurchaseReceipt extends Model
 {
-    use HasFactory, Loggable, SoftDeletes;
+    use BelongsToEnterprise, HasFactory, Loggable, SoftDeletes;
 
     protected $fillable = [
+        'enterprise_id',
         'receipt_number',
         'purchase_order_id',
         'supplier_id',

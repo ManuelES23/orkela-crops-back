@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,11 +10,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class VisitaCampoDetalle extends Model
 {
-    use HasFactory;
+    use BelongsToEnterprise, HasFactory;
 
     protected $table = 'visita_campo_detalles';
 
     protected $fillable = [
+        'enterprise_id',
         'visita_campo_id',
         'etapa_id',
         'etapa_fenologica_id',

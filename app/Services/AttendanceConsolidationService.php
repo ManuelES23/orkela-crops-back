@@ -33,6 +33,7 @@ class AttendanceConsolidationService
             ->first();
 
         $payload = [
+            'enterprise_id' => $check->enterprise_id,
             'source_device' => 'field_biometric',
         ];
 

@@ -2,16 +2,17 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CalidadEmpaqueMuestraPlaga extends Model
 {
-    use HasFactory;
+    use BelongsToEnterprise, HasFactory;
 
     protected $table = 'calidad_empaque_muestra_plagas';
 
-    protected $fillable = ['muestra_id', 'plaga_id', 'cantidad'];
+    protected $fillable = ['enterprise_id', 'muestra_id', 'plaga_id', 'cantidad'];
 
     protected $casts = [
         'cantidad' => 'decimal:2',

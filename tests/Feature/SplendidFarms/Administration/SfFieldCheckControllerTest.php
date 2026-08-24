@@ -28,6 +28,7 @@ class SfFieldCheckControllerTest extends TestCase
         Storage::disk('local')->put($path, $photo);
 
         return SfEmployeeFaceTemplate::create([
+            'enterprise_id' => \App\Models\SfEmployee::findOrFail($employeeId)->enterprise_id,
             'sf_employee_id' => $employeeId,
             'embedding' => $embeddingOverride ?? array_fill(0, 128, 0.1),
             'photo_path' => $path,

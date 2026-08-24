@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class LiquidacionConsignacionDetalle extends Model
 {
-    use HasFactory;
+    use BelongsToEnterprise, HasFactory;
 
     protected $table = 'liquidacion_consignacion_detalles';
 
     protected $fillable = [
+        'enterprise_id',
         'liquidacion_id',
         'salida_campo_id',
         'tipo_carga_id',

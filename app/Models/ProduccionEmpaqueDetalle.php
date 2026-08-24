@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class ProduccionEmpaqueDetalle extends Model
 {
-    use HasFactory, Loggable;
+    use BelongsToEnterprise, HasFactory, Loggable;
 
     protected $table = 'produccion_empaque_detalles';
 
     protected $fillable = [
+        'enterprise_id',
         'produccion_id',
         'numero_entrada',
         'proceso_id',

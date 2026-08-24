@@ -166,8 +166,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/submodule-permission', [App\Http\Controllers\Api\HierarchicalPermissionController::class, 'assignSubmodulePermission']);
     });
 
-    // Rutas específicas de Splendid Farms
-    Route::prefix('splendidfarms')->group(function () {
+    // Rutas específicas de Splendid Farms — el mismo bloque se registra
+    // también bajo 'finca-modelo-demo' (su espejo demo, mismo esqueleto de
+    // aplicaciones/módulos/submódulos por DemoStructureSeeder). El contenido
+    // interior no se reindentó a propósito para minimizar el diff — ver
+    // docs/superpowers/specs/2026-08-23-agricultural-suite-multi-tenancy-design.md.
+    foreach (['splendidfarms', 'finca-modelo-demo'] as $empresaAgricola) {
+    Route::prefix($empresaAgricola)->group(function () {
 
         // =====================================================
         // APLICACIÓN ADMINISTRACIÓN - Rutas específicas
@@ -702,6 +707,7 @@ Route::middleware('auth:sanctum')->group(function () {
             });
         });
     });
+    }
 
     // =====================================================
     // RUTAS DE ADMINISTRACIÓN GLOBAL

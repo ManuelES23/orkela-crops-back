@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,11 +11,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class AbonoProductor extends Model
 {
-    use HasFactory, SoftDeletes, Loggable;
+    use BelongsToEnterprise, HasFactory, SoftDeletes, Loggable;
 
     protected $table = 'abonos_productores';
 
     protected $fillable = [
+        'enterprise_id',
         'folio_abono',
         'productor_id',
         'temporada_id',

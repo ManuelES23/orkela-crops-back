@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,11 +10,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CicloAgricola extends Model
 {
-    use HasFactory, SoftDeletes, Loggable;
+    use BelongsToEnterprise, HasFactory, SoftDeletes, Loggable;
 
     protected $table = 'ciclos_agricolas';
 
     protected $fillable = [
+        'enterprise_id',
         'cultivo_id',
         'periodo',
         'nombre',

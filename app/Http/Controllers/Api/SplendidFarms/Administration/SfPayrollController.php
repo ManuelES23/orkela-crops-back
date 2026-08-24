@@ -142,6 +142,7 @@ class SfPayrollController extends Controller
             }
 
             $payload = [
+                'enterprise_id' => $employee->enterprise_id,
                 'check_in' => $checkIn,
                 'check_out' => $checkOut,
                 'status' => in_array($row['status'], [

@@ -86,6 +86,7 @@ class SfFaceTemplateController extends Controller
                 return SfEmployeeFaceTemplate::updateOrCreate(
                     ['sf_employee_id' => $sfEmployee->id],
                     [
+                        'enterprise_id' => $sfEmployee->enterprise_id,
                         'embedding' => $result['embedding'],
                         'photo_path' => $photoPath,
                         'model_version' => $result['model_version'],

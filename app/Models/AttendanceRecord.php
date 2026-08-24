@@ -5,13 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 
 class AttendanceRecord extends Model
 {
-    use HasFactory, Loggable;
+    use BelongsToEnterprise, HasFactory, Loggable;
 
     protected $fillable = [
+        'enterprise_id',
         'employee_id',
         'date',
         'check_in',

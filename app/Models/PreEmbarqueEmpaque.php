@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,11 +10,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PreEmbarqueEmpaque extends Model
 {
-    use HasFactory, Loggable, SoftDeletes;
+    use BelongsToEnterprise, HasFactory, Loggable, SoftDeletes;
 
     protected $table = 'pre_embarques_empaque';
 
     protected $fillable = [
+        'enterprise_id',
         'temporada_id',
         'entity_id',
         'folio_pre_embarque',

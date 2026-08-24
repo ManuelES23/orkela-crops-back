@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RequisicionCampoDetalle extends Model
 {
-    use HasFactory;
+    use BelongsToEnterprise, HasFactory;
 
     protected $table = 'requisicion_campo_detalles';
 
     protected $fillable = [
+        'enterprise_id',
         'requisicion_campo_id',
         'product_id',
         'nombre_producto',

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,11 +10,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DiagnosticoIA extends Model
 {
-    use HasFactory, Loggable;
+    use BelongsToEnterprise, HasFactory, Loggable;
 
     protected $table = 'diagnosticos_ia';
 
     protected $fillable = [
+        'enterprise_id',
         'temporada_id',
         'user_id',
         'visita_campo_id',

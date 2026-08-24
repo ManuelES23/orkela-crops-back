@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,11 +10,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SfEmployeeContract extends Model
 {
-    use HasFactory, Loggable, SoftDeletes;
+    use BelongsToEnterprise, HasFactory, Loggable, SoftDeletes;
 
     protected $table = 'sf_employee_contracts';
 
     protected $fillable = [
+        'enterprise_id',
         'sf_employee_id',
         'code',
         'version',

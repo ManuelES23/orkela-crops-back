@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,11 +12,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class LiquidacionConsignacion extends Model
 {
-    use HasFactory, SoftDeletes, Loggable;
+    use BelongsToEnterprise, HasFactory, SoftDeletes, Loggable;
 
     protected $table = 'liquidaciones_consignacion';
 
     protected $fillable = [
+        'enterprise_id',
         'folio_liquidacion',
         'convenio_compra_id',
         'temporada_id',

@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CalidadEmpaqueMuestra extends Model
 {
-    use HasFactory;
+    use BelongsToEnterprise, HasFactory;
 
     protected $table = 'calidad_empaque_muestras';
 
@@ -17,6 +18,7 @@ class CalidadEmpaqueMuestra extends Model
     ];
 
     protected $fillable = [
+        'enterprise_id',
         'calidad_id', 'recepcion_id', 'empleado_id', 'empacador_nombre',
         'hora', 'muestra', 'conteo', 'cumple', 'no_cumple',
         'porcentaje_cumple', 'calificacion', 'observaciones',

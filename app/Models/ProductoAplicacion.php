@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ProductoAplicacion extends Model
 {
-    use HasFactory;
+    use BelongsToEnterprise, HasFactory;
 
     protected $table = 'productos_aplicacion';
 
     protected $fillable = [
+        'enterprise_id',
         'nombre',
         'ingrediente_activo',
         'marca',

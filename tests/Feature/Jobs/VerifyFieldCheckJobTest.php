@@ -58,6 +58,7 @@ class VerifyFieldCheckJobTest extends TestCase
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         $embedding = array_fill(0, 128, 0.2);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => $embedding,
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -89,6 +90,7 @@ class VerifyFieldCheckJobTest extends TestCase
         [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => array_fill(0, 128, 0.0),
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -139,6 +141,7 @@ class VerifyFieldCheckJobTest extends TestCase
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         $embedding = array_fill(0, 128, 0.2);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => $embedding,
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -164,6 +167,7 @@ class VerifyFieldCheckJobTest extends TestCase
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         $embedding = array_fill(0, 128, 0.2);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => $embedding,
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -191,6 +195,7 @@ class VerifyFieldCheckJobTest extends TestCase
         $embedding = array_fill(0, 128, 0.2);
         // Plantilla enrolada con el modelo actual...
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => $embedding,
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -223,6 +228,7 @@ class VerifyFieldCheckJobTest extends TestCase
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         $embedding = array_fill(0, 128, 0.2);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => $embedding,
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -237,6 +243,7 @@ class VerifyFieldCheckJobTest extends TestCase
 
         // RH ya importó este empleado+fecha como incapacidad (vía el flujo de Excel).
         $existing = SfAttendanceRecord::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'date' => $today->toDateString(),
             'status' => 'sick_leave',
@@ -276,6 +283,7 @@ class VerifyFieldCheckJobTest extends TestCase
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         $embedding = array_fill(0, 128, 0.2);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => $embedding,
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -306,6 +314,7 @@ class VerifyFieldCheckJobTest extends TestCase
         [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => array_fill(0, 128, 0.2),
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -336,6 +345,7 @@ class VerifyFieldCheckJobTest extends TestCase
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         $embedding = array_fill(0, 128, 0.2);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => $embedding,
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -364,6 +374,7 @@ class VerifyFieldCheckJobTest extends TestCase
         [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => array_fill(0, 128, 0.2),
             'photo_path' => 'private/sf-face-templates/x.jpg',
@@ -392,6 +403,7 @@ class VerifyFieldCheckJobTest extends TestCase
         [$user, $enterprise] = $this->createAuthenticatedUserWithEnterprise();
         $employee = $this->createSfEmployee($enterprise->id, ['status' => 'active']);
         SfEmployeeFaceTemplate::create([
+            'enterprise_id' => $enterprise->id,
             'sf_employee_id' => $employee->id,
             'embedding' => array_fill(0, 128, 0.2),
             'photo_path' => 'private/sf-face-templates/x.jpg',

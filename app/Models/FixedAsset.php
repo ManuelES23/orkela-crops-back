@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,7 @@ use Illuminate\Support\Str;
 
 class FixedAsset extends Model
 {
-    use HasFactory, SoftDeletes, Loggable;
+    use BelongsToEnterprise, HasFactory, SoftDeletes, Loggable;
 
     public const STATUSES = [
         'en_uso' => 'En uso',
@@ -24,6 +25,7 @@ class FixedAsset extends Model
     ];
 
     protected $fillable = [
+        'enterprise_id',
         'code',
         'image',
         'name',

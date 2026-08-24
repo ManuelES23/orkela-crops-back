@@ -2,16 +2,18 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class EmbarqueEmpaqueDetalle extends Model
 {
-    use HasFactory;
+    use BelongsToEnterprise, HasFactory;
 
     protected $table = 'embarque_empaque_detalles';
 
     protected $fillable = [
+        'enterprise_id',
         'embarque_id', 'produccion_id', 'numero_pallet', 'folio_produccion',
         'productor', 'variedad', 'lote', 'marca', 'lote_producto_terminado',
         'presentacion', 'tipo_empaque', 'etiqueta',

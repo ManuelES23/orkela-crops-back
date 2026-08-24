@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,11 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SalidaCampoCosecha extends Model
 {
-    use HasFactory, Loggable;
+    use BelongsToEnterprise, HasFactory, Loggable;
 
     protected $table = 'salidas_campo_cosecha';
 
     protected $fillable = [
+        'enterprise_id',
         'temporada_id',
         'etapa_id',
         'variedad_id',

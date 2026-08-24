@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,12 +10,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class EmbarqueEmpaque extends Model
 {
-    use HasFactory, SoftDeletes, Loggable;
+    use BelongsToEnterprise, HasFactory, SoftDeletes, Loggable;
 
     protected $table = 'embarques_empaque';
 
     protected $fillable = [
-        'temporada_id', 'entity_id', 'folio_embarque', 'manifiesto', 'genera_manifiesto',
+        'enterprise_id', 'temporada_id', 'entity_id', 'folio_embarque', 'manifiesto', 'genera_manifiesto',
         // Datos empresa (snapshot)
         'empresa_razon_social', 'empresa_rfc', 'empresa_direccion',
         'empresa_ciudad', 'empresa_pais', 'empresa_agente_aduana_mx',

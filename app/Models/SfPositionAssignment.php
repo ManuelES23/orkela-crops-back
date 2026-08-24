@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class SfPositionAssignment extends Model
 {
-    use HasFactory, Loggable;
+    use BelongsToEnterprise, HasFactory, Loggable;
 
     protected $table = 'sf_position_assignments';
 
     protected $fillable = [
+        'enterprise_id',
         'sf_employee_id',
         'sf_position_id',
         'assignment_date',

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,11 +12,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Aplicacion extends Model
 {
-    use HasFactory, Loggable, SoftDeletes;
+    use BelongsToEnterprise, HasFactory, Loggable, SoftDeletes;
 
     protected $table = 'aplicaciones';
 
     protected $fillable = [
+        'enterprise_id',
         'temporada_id',
         'folio',
         'fecha',

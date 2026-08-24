@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,11 +16,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class AccountPayable extends Model
 {
-    use HasFactory, Loggable, SoftDeletes;
+    use BelongsToEnterprise, HasFactory, Loggable, SoftDeletes;
 
     protected $table = 'accounts_payable';
 
     protected $fillable = [
+        'enterprise_id',
         'document_number',
         'document_type',
         'supplier_id',

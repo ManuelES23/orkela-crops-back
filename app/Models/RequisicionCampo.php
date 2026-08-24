@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,11 +12,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class RequisicionCampo extends Model
 {
-    use HasFactory, Loggable, SoftDeletes;
+    use BelongsToEnterprise, HasFactory, Loggable, SoftDeletes;
 
     protected $table = 'requisiciones_campo';
 
     protected $fillable = [
+        'enterprise_id',
         'numero_requisicion',
         'temporada_id',
         'visita_campo_id',

@@ -6,6 +6,12 @@ use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+// No usa BelongsToEnterprise: este modelo ya resuelve enterprise_id por su
+// propio mecanismo (empresa del usuario autenticado vía UserEnterpriseAccess,
+// ver SfFieldCheckController::authorizeEnterpriseAccess() — "Plan 2"), no
+// por la URL. Corre además desde jobs en cola y comandos de consola sin
+// request HTTP, donde el middleware ResolveCurrentEnterprise nunca se
+// ejecuta — el global scope de BelongsToEnterprise rompía esos casos.
 class SfFieldCheck extends Model
 {
     use HasFactory, Loggable;

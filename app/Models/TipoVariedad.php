@@ -4,15 +4,17 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 
 class TipoVariedad extends Model
 {
-    use SoftDeletes, Loggable;
+    use BelongsToEnterprise, SoftDeletes, Loggable;
 
     protected $table = 'tipos_variedad';
 
     protected $fillable = [
+        'enterprise_id',
         'variedad_id',
         'nombre',
         'descripcion',

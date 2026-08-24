@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToEnterprise;
 use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,11 +10,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class RezagaEmpaque extends Model
 {
-    use HasFactory, SoftDeletes, Loggable;
+    use BelongsToEnterprise, HasFactory, SoftDeletes, Loggable;
 
     protected $table = 'rezaga_empaque';
 
     protected $fillable = [
+        'enterprise_id',
         'temporada_id', 'entity_id', 'proceso_id', 'folio_rezaga',
         'tipo_rezaga', 'subtipo_rezaga', 'fecha', 'cantidad_kg',
         'modo_registro', 'tipo_carga_id', 'total_cajas', 'peso_bascula_kg',
