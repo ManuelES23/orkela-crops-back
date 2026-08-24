@@ -120,4 +120,104 @@ class RhVacationBalanceIsolationTest extends TestCase
 
         $this->assertSame(0, VacationBalance::where('employee_id', $rootEmployee->id)->count());
     }
+
+    /**
+     * Regresión para el hallazgo Importante del review final de rama:
+     * getBalance(), getEmployeeVacationInfo(), applyAdjustment() y
+     * getBalanceHistory() de VacationController no tenían ninguna
+     * autorización — cualquier usuario autenticado de CUALQUIER empresa
+     * espejo de 'grupoesplendido' podía leer/escribir el balance de
+     * vacaciones de empleados de OTRA empresa (incluida la raíz), solo
+     * conociendo su employee_id.
+     */
+    public function test_user_from_mirror_cannot_apply_adjustment_to_employee_in_another_enterprise(): void
+    {
+        $root = Enterprise::create(['name' => 'Grupo Espléndido', 'slug' => 'grupoesplendido', 'description' => 'x', 'is_active' => true]);
+        $mirror = Enterprise::create([
+            'name' => 'Agroverde', 'slug' => 'agroverde-demo', 'description' => 'x',
+            'is_active' => true, 'mirror_source_id' => $root->id,
+        ]);
+        app(EnterpriseProvisioningService::class)->provision($mirror);
+        $this->refreshApplication();
+
+        $rootEmployee = $this->makeEmployee($root, 'ROOT-004');
+
+        $user = User::factory()->create();
+        UserEnterpriseAccess::create(['user_id' => $user->id, 'enterprise_id' => $mirror->id, 'is_active' => true, 'granted_at' => now()]);
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/agroverde-demo/rh/vacaciones/empleado/{$rootEmployee->id}/ajuste", [
+            'adjustment_days' => 30,
+            'adjustment_reason' => 'Intento no autorizado',
+        ])
+            ->assertStatus(403)
+            ->assertJson(['status' => 'error']);
+
+        $this->assertSame(0, VacationBalance::where('employee_id', $rootEmployee->id)->count());
+    }
+
+    public function test_user_from_mirror_cannot_view_balance_history_of_employee_in_another_enterprise(): void
+    {
+        $root = Enterprise::create(['name' => 'Grupo Espléndido', 'slug' => 'grupoesplendido', 'description' => 'x', 'is_active' => true]);
+        $mirror = Enterprise::create([
+            'name' => 'Agroverde', 'slug' => 'agroverde-demo', 'description' => 'x',
+            'is_active' => true, 'mirror_source_id' => $root->id,
+        ]);
+        app(EnterpriseProvisioningService::class)->provision($mirror);
+        $this->refreshApplication();
+
+        $rootEmployee = $this->makeEmployee($root, 'ROOT-005');
+
+        $user = User::factory()->create();
+        UserEnterpriseAccess::create(['user_id' => $user->id, 'enterprise_id' => $mirror->id, 'is_active' => true, 'granted_at' => now()]);
+        Sanctum::actingAs($user);
+
+        $this->getJson("/api/agroverde-demo/rh/vacaciones/empleado/{$rootEmployee->id}/historial")
+            ->assertStatus(403)
+            ->assertJson(['status' => 'error']);
+    }
+
+    public function test_user_from_mirror_cannot_view_vacation_info_of_employee_in_another_enterprise(): void
+    {
+        $root = Enterprise::create(['name' => 'Grupo Espléndido', 'slug' => 'grupoesplendido', 'description' => 'x', 'is_active' => true]);
+        $mirror = Enterprise::create([
+            'name' => 'Agroverde', 'slug' => 'agroverde-demo', 'description' => 'x',
+            'is_active' => true, 'mirror_source_id' => $root->id,
+        ]);
+        app(EnterpriseProvisioningService::class)->provision($mirror);
+        $this->refreshApplication();
+
+        $rootEmployee = $this->makeEmployee($root, 'ROOT-006');
+
+        $user = User::factory()->create();
+        UserEnterpriseAccess::create(['user_id' => $user->id, 'enterprise_id' => $mirror->id, 'is_active' => true, 'granted_at' => now()]);
+        Sanctum::actingAs($user);
+
+        $this->getJson("/api/agroverde-demo/rh/vacaciones/empleado/{$rootEmployee->id}/info")
+            ->assertStatus(403)
+            ->assertJson(['status' => 'error']);
+    }
+
+    public function test_user_from_mirror_cannot_read_balance_of_employee_in_another_enterprise(): void
+    {
+        $root = Enterprise::create(['name' => 'Grupo Espléndido', 'slug' => 'grupoesplendido', 'description' => 'x', 'is_active' => true]);
+        $mirror = Enterprise::create([
+            'name' => 'Agroverde', 'slug' => 'agroverde-demo', 'description' => 'x',
+            'is_active' => true, 'mirror_source_id' => $root->id,
+        ]);
+        app(EnterpriseProvisioningService::class)->provision($mirror);
+        $this->refreshApplication();
+
+        $rootEmployee = $this->makeEmployee($root, 'ROOT-007');
+
+        $user = User::factory()->create();
+        UserEnterpriseAccess::create(['user_id' => $user->id, 'enterprise_id' => $mirror->id, 'is_active' => true, 'granted_at' => now()]);
+        Sanctum::actingAs($user);
+
+        $this->getJson("/api/agroverde-demo/rh/vacaciones/balance?employee_id={$rootEmployee->id}")
+            ->assertStatus(403)
+            ->assertJson(['status' => 'error']);
+
+        $this->assertSame(0, VacationBalance::where('employee_id', $rootEmployee->id)->count());
+    }
 }

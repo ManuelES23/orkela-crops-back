@@ -426,6 +426,9 @@ class VacationController extends Controller
         ]);
 
         $employee = Employee::findOrFail($validated['employee_id']);
+
+        $this->authorizeEnterpriseAccess($request, $employee->enterprise_id);
+
         $year = $validated['year'] ?? now()->year;
 
         $balance = VacationBalance::firstOrCreate(
@@ -479,8 +482,10 @@ class VacationController extends Controller
     /**
      * Obtener información completa de vacaciones de un empleado según LFT México
      */
-    public function getEmployeeVacationInfo(Employee $employee): JsonResponse
+    public function getEmployeeVacationInfo(Request $request, Employee $employee): JsonResponse
     {
+        $this->authorizeEnterpriseAccess($request, $employee->enterprise_id);
+
         $info = VacationCalculatorService::getEmployeeVacationInfo($employee);
 
         return response()->json([
@@ -608,6 +613,8 @@ class VacationController extends Controller
      */
     public function applyAdjustment(Request $request, Employee $employee): JsonResponse
     {
+        $this->authorizeEnterpriseAccess($request, $employee->enterprise_id);
+
         $validated = $request->validate([
             'year' => 'nullable|integer|min:2020|max:2100',
             'adjustment_days' => 'required|integer|min:-365|max:365',
@@ -655,8 +662,10 @@ class VacationController extends Controller
     /**
      * Obtener historial de balances de un empleado
      */
-    public function getBalanceHistory(Employee $employee): JsonResponse
+    public function getBalanceHistory(Request $request, Employee $employee): JsonResponse
     {
+        $this->authorizeEnterpriseAccess($request, $employee->enterprise_id);
+
         $balances = VacationBalance::where('employee_id', $employee->id)
             ->with('adjustedByUser')
             ->orderBy('year', 'desc')
