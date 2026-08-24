@@ -82,6 +82,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('enterprises/{enterprise}/logo-data', [App\Http\Controllers\Api\EnterpriseController::class, 'logoData']);
     Route::get('enterprises/{enterprise}/applications', [App\Http\Controllers\Api\EnterpriseController::class, 'applications']);
     Route::get('enterprises/{enterprise}/profile', [App\Http\Controllers\Api\EnterpriseController::class, 'profile']);
+    Route::post('enterprises/{enterprise}/provision-suite', [App\Http\Controllers\Api\EnterpriseController::class, 'provisionSuite']);
 
     // Rutas de aplicaciones
     Route::prefix('applications')->group(function () {

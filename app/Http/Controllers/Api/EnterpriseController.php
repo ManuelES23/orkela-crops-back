@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Enterprise;
+use App\Services\EnterpriseProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
@@ -12,6 +13,30 @@ use Illuminate\Validation\Rule;
 
 class EnterpriseController extends Controller
 {
+    /**
+     * Regla de validación para mirror_source_id: si viene seteado, debe
+     * apuntar a una empresa raíz (mirror_source_id IS NULL en ella misma) —
+     * evita cadenas de espejos.
+     */
+    private function mirrorSourceRule(): \Closure
+    {
+        return function ($attribute, $value, $fail) {
+            if (! $value) {
+                return;
+            }
+
+            $target = Enterprise::find($value);
+            if (! $target) {
+                $fail('La empresa a espejar no existe.');
+                return;
+            }
+
+            if ($target->mirror_source_id) {
+                $fail('La empresa seleccionada como espejo ya es, a su vez, un espejo de otra. Elegí una empresa raíz.');
+            }
+        };
+    }
+
     /**
      * Obtener todas las empresas (admin) o activas (usuarios)
      */
@@ -87,7 +112,8 @@ class EnterpriseController extends Controller
             'domain' => 'nullable|string|max:255|unique:enterprises,domain',
             'logo' => 'nullable|image|mimes:jpeg,jpg,png,gif|max:2048',
             'color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
-            'active' => 'boolean'
+            'active' => 'boolean',
+            'mirror_source_id' => ['nullable', 'integer', 'exists:enterprises,id', $this->mirrorSourceRule()],
         ]);
 
         // Convertir 'active' a 'is_active' para la base de datos
@@ -264,8 +290,19 @@ class EnterpriseController extends Controller
             ],
             'logo' => 'nullable|image|mimes:jpeg,jpg,png,gif|max:2048',
             'color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
-            'active' => 'boolean'
+            'active' => 'boolean',
+            'mirror_source_id' => ['nullable', 'integer', 'exists:enterprises,id', $this->mirrorSourceRule()],
         ]);
+
+        if (array_key_exists('mirror_source_id', $validated)
+            && (int) ($validated['mirror_source_id'] ?? 0) !== (int) ($enterprise->mirror_source_id ?? 0)
+            && $enterprise->applications()->exists()
+        ) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No se puede cambiar la suite de una empresa que ya fue aprovisionada. Eliminá la empresa y creála de nuevo si necesitás otra suite.',
+            ], 422);
+        }
 
         // Convertir 'active' a 'is_active' para la base de datos
         if (isset($validated['active'])) {
@@ -313,6 +350,35 @@ class EnterpriseController extends Controller
                 'color' => $enterprise->color,
                 'active' => (bool) $enterprise->is_active
             ]
+        ]);
+    }
+
+    /**
+     * Aprovisiona (o re-sincroniza) el árbol de Aplicación/Módulo/Submódulo
+     * de una empresa espejo, según la suite de su mirror_source_id.
+     */
+    public function provisionSuite(Request $request, $id): JsonResponse
+    {
+        if (! $request->user() || $request->user()->role !== 'admin') {
+            return response()->json(['status' => 'error', 'message' => 'No autorizado.'], 403);
+        }
+
+        $enterprise = is_numeric($id) ? Enterprise::find($id) : Enterprise::where('slug', $id)->first();
+
+        if (! $enterprise) {
+            return response()->json(['status' => 'error', 'message' => 'Empresa no encontrada'], 404);
+        }
+
+        try {
+            $summary = app(EnterpriseProvisioningService::class)->provision($enterprise);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Suite aprovisionada correctamente.',
+            'data' => $summary,
         ]);
     }
 
